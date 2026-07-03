@@ -21,6 +21,7 @@ import {
   Scenario,
   ScenarioContext,
   ScenarioProgressResponse,
+  User,
   WorkItem,
   api,
 } from "@/src/api/client";
@@ -33,11 +34,19 @@ import {
   canReviewWorkItems,
   canSubmitWorkItemState,
   canWriteWorkItem,
+  buildModifiedResourcesFromPaths,
   getRequiredWorkIds,
   getSubmitResource,
   isHeadquarterScenario,
   type WorkId,
 } from "@/src/scenario/workflow";
+import { toDirtyInputPath } from "@/src/scenario/patch";
+import { saveScenarioModule } from "@/src/scenario/saveHarness";
+import { TemelBilgilerEditor } from "@/src/scenario/TemelBilgilerEditor";
+import {
+  temelBilgilerSaveAdapter,
+  TemelBilgilerDraft,
+} from "@/src/scenario/temelBilgilerAdapter";
 import { colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, ProgressBar, Row } from "@/src/ui/components";
 
@@ -70,7 +79,7 @@ type ModuleDef = {
   readResource?: string;
 };
 
-type ActionBusy = "submit" | "approve" | "revise" | "send" | null;
+type ActionBusy = "save" | "submit" | "approve" | "revise" | "send" | null;
 
 const MODULES: ModuleDef[] = [
   {
@@ -300,7 +309,7 @@ export default function ScenarioScreen() {
   const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [revisionComment, setRevisionComment] = useState("");
-  const [dirtyResources] = useState<string[]>([]);
+  const [dirtyResources, setDirtyResources] = useState<string[]>([]);
 
   const progress = useMemo(() => normalizeProgress(progressRaw), [progressRaw]);
   const scenario = context?.scenario || null;
@@ -396,9 +405,13 @@ export default function ScenarioScreen() {
 
   useEffect(() => {
     if (visibleModules.length && !visibleModules.some((module) => module.key === activeTab)) {
+      if (dirty) {
+        setActionMessage("Once degisiklikleri kaydedin veya vazgecin.");
+        return;
+      }
       setActiveTab(visibleModules[0].key);
     }
-  }, [activeTab, visibleModules]);
+  }, [activeTab, dirty, visibleModules]);
 
   const activeModule = visibleModules.find((module) => module.key === activeTab) || visibleModules[0] || MODULES[0];
   const activeWorkItem = activeModule.workId
@@ -465,7 +478,46 @@ export default function ScenarioScreen() {
     actionMessage ||
     submitBlockers[0] ||
     sendBlockers[0] ||
-    "Modul editorleri PR 04 ve sonrasinda port edilecek; kayit kapali.";
+    "Bu modulde islem yapilamiyor veya once engeller giderilmeli.";
+
+  const changeTab = useCallback(
+    (nextTab: ModuleKey) => {
+      if (activeTab === nextTab) return;
+      if (dirty) {
+        setActionMessage("Once degisiklikleri kaydedin veya vazgecin.");
+        return;
+      }
+      setActionMessage("");
+      setActiveTab(nextTab);
+    },
+    [activeTab, dirty],
+  );
+
+  const refreshScenario = useCallback(() => {
+    if (dirty) {
+      setActionMessage("Yenilemeden once degisiklikleri kaydedin veya vazgecin.");
+      return;
+    }
+    load();
+  }, [dirty, load]);
+
+  const refreshScenarioFromPull = useCallback(() => {
+    if (dirty) {
+      setActionMessage("Yenilemeden once degisiklikleri kaydedin veya vazgecin.");
+      setRefreshing(false);
+      return;
+    }
+    setRefreshing(true);
+    load();
+  }, [dirty, load]);
+
+  const goBack = useCallback(() => {
+    if (dirty) {
+      setActionMessage("Once degisiklikleri kaydedin veya vazgecin.");
+      return;
+    }
+    router.back();
+  }, [dirty, router]);
 
   const handleSubmitActive = useCallback(async () => {
     if (!schoolId || !scenarioId || !activeModule.workId || !canSubmitActive) return;
@@ -483,6 +535,37 @@ export default function ScenarioScreen() {
       setActionBusy(null);
     }
   }, [activeModule.workId, canSubmitActive, load, scenarioId, schoolId]);
+
+  const handleTemelDirtyPathsChange = useCallback((paths: string[]) => {
+    const dirtyInputPaths = paths.map((path) => toDirtyInputPath(path));
+    setDirtyResources(buildModifiedResourcesFromPaths(dirtyInputPaths));
+  }, []);
+
+  const handleSaveTemelBilgiler = useCallback(
+    async (draft: TemelBilgilerDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        await saveScenarioModule({
+          schoolId,
+          scenarioId,
+          adapter: temelBilgilerSaveAdapter,
+          draft,
+          currentInputs: inputs,
+        });
+        setDirtyResources([]);
+        await load();
+        setActionMessage("Temel Bilgiler kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Temel Bilgiler kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [inputs, load, scenarioId, schoolId],
+  );
 
   const handleReviewActive = useCallback(
     async (action: "approve" | "revise") => {
@@ -540,7 +623,7 @@ export default function ScenarioScreen() {
       <View style={styles.header}>
         <Pressable
           testID="scenario-back-button"
-          onPress={() => router.back()}
+          onPress={goBack}
           hitSlop={12}
           style={styles.backBtn}
         >
@@ -582,10 +665,7 @@ export default function ScenarioScreen() {
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
-                onRefresh={() => {
-                  setRefreshing(true);
-                  load();
-                }}
+                onRefresh={refreshScenarioFromPull}
                 tintColor={colors.primary}
               />
             }
@@ -616,7 +696,7 @@ export default function ScenarioScreen() {
                       key={module.key}
                       label={required || !module.workId ? module.shortLabel : `${module.shortLabel} Ops.`}
                       active={activeTab === module.key}
-                      onPress={() => setActiveTab(module.key)}
+                      onPress={() => changeTab(module.key)}
                       testID={`tab-${module.key}`}
                     />
                   );
@@ -646,6 +726,10 @@ export default function ScenarioScreen() {
                   isHeadquarter={isHeadquarter}
                   scenarioLocked={locked}
                   canWrite={activeCanWrite}
+                  user={user}
+                  savingTemelBilgiler={actionBusy === "save"}
+                  onTemelDirtyPathsChange={handleTemelDirtyPathsChange}
+                  onSaveTemelBilgiler={handleSaveTemelBilgiler}
                 />
               )}
             </View>
@@ -666,7 +750,7 @@ export default function ScenarioScreen() {
                 icon="refresh-outline"
                 variant="secondary"
                 small
-                onPress={load}
+                onPress={refreshScenario}
                 testID="scenario-refresh-button"
               />
             </View>
@@ -832,6 +916,10 @@ function ModulePanel({
   isHeadquarter,
   scenarioLocked,
   canWrite,
+  user,
+  savingTemelBilgiler,
+  onTemelDirtyPathsChange,
+  onSaveTemelBilgiler,
 }: {
   module: ModuleDef;
   context: ScenarioContext | null;
@@ -841,6 +929,10 @@ function ModulePanel({
   isHeadquarter: boolean;
   scenarioLocked: boolean;
   canWrite: boolean;
+  user: User | null | undefined;
+  savingTemelBilgiler: boolean;
+  onTemelDirtyPathsChange: (paths: string[]) => void;
+  onSaveTemelBilgiler: (draft: TemelBilgilerDraft) => Promise<void>;
 }) {
   const moduleProgress = progressForModule(module, progress);
   const workMeta = workStateMeta(workItem?.state);
@@ -852,6 +944,7 @@ function ModulePanel({
       : !canWrite
         ? "Bu modul icin yazma yetkiniz yok"
         : optionalReason || "Editor port edilene kadar salt okunur; tamamlanan modul footer'dan gonderilebilir";
+  const canEditModule = canWrite && !scenarioLocked && !workMeta.locked;
 
   return (
     <>
@@ -909,7 +1002,21 @@ function ModulePanel({
         ) : null}
       </Card>
 
-      <ModuleReadOnlySummary module={module} context={context} />
+      {module.key === "temel_bilgiler" ? (
+        <TemelBilgilerEditor
+          value={context?.inputs?.temelBilgiler}
+          scenario={context?.scenario || null}
+          user={user}
+          currencyCode={resolveCurrency(context?.scenario || null)}
+          canEdit={canEditModule}
+          disabledReason={lockReason}
+          saving={savingTemelBilgiler}
+          onDirtyPathsChange={onTemelDirtyPathsChange}
+          onSave={onSaveTemelBilgiler}
+        />
+      ) : (
+        <ModuleReadOnlySummary module={module} context={context} />
+      )}
     </>
   );
 }
