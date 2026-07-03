@@ -120,6 +120,7 @@ Scope:
   - approval queues
   - permission catalog and user permissions
   - binary/export URL helpers separated from JSON `request`
+- Add `noCache` request support matching web `api.js`, especially for scenario progress, school progress, and stale expense-split endpoints.
 - Match web helper names or add aliases:
   - `getScenarioInputs`
   - `saveScenarioInputs`
@@ -321,41 +322,44 @@ Acceptance:
 - Temel Bilgiler load/save matches web on a production scenario.
 - No unrelated input sections are overwritten.
 
-## PR 04C - Kapasite And Grades Basics
+## PR 04C - Kapasite Editor
 
-Branch: `mobile/pr-04c-kapasite-grades`
+Branch: `mobile/pr-04c-kapasite-editor`
 
-Purpose: Port capacity fields and grade basics safely.
+Purpose: Port capacity fields safely.
 
 Scope:
 - Port domain behavior from:
   - `CapacityEditor.jsx`
-  - `GradesEditor.jsx` where needed
   - `KapasitePage.jsx`
 - Preserve real nested `kapasite` structure.
 - Track correct modified resources.
-- When porting `GradesEditor`, track `grades_plan` permissions separately from `kapasite`.
-- Do not send only `section.kapasite.caps` for grade/branch plan changes.
+- Do not edit `gradesYears` or `gradesCurrent` here except for read-only display or derived calculations.
 
 Acceptance:
 - Kapasite load/save matches web.
-- Progress/calculation remains consistent after save.
+- Capacity calculations remain consistent after save.
+- Grade/branch planning remains read-only here and is deferred to PR 05A.
 
-## PR 05A - Norm Config
+## PR 05A - Norm Config And Grade Planning
 
 Branch: `mobile/pr-05a-norm-config`
 
-Purpose: Port Norm configuration in isolation.
+Purpose: Port Norm configuration and grade planning in the same workflow used by the web app.
 
 Scope:
 - Port domain behavior from:
   - `NormConfigEditor.jsx`
   - `NormPage.jsx`
+- Port grade planning/current-grade behavior used inside the Norm flow.
 - Use `/schools/:schoolId/norm-config?scenarioId=:scenarioId` when editing scenario-specific norm config.
 - Support curriculum weekly hours and teacher weekly max hours.
+- Preserve and safely patch `gradesYears`, `gradesCurrent`, and norm config together where the web flow does so.
+- Confirm exact `modifiedResources` mapping against `SchoolPage.jsx::pathToResources` before enabling non-admin saves.
 
 Acceptance:
 - Norm save/load matches web and backend schema.
+- Grade/branch planning load/save matches web where enabled.
 - Norm progress updates correctly.
 
 ## PR 05B - IK Editor
