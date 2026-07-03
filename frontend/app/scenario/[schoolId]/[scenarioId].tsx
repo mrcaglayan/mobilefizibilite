@@ -30,6 +30,8 @@ const TABS = [
   { key: "rapor", label: "Rapor", icon: "pie-chart-outline" as const },
 ];
 
+const SCENARIO_SAVE_GATED = true;
+
 const KADEMELER = [
   { key: "anaokulu", label: "Anaokulu" },
   { key: "ilkokul", label: "İlkokul" },
@@ -68,7 +70,7 @@ export default function ScenarioScreen() {
     if (!schoolId || !scenarioId) return;
     setErr("");
     try {
-      const res = await api.getInputs(schoolId, scenarioId);
+      const res = await api.getScenarioInputs(schoolId, scenarioId);
       setInputs(res.inputs);
       setInitial(res.inputs);
     } catch (e: any) {
@@ -86,7 +88,7 @@ export default function ScenarioScreen() {
     if (!schoolId || !scenarioId) return;
     setReportLoading(true);
     try {
-      const r = await api.getReport(schoolId, scenarioId);
+      const r = await api.getScenarioReport(schoolId, scenarioId);
       setReport(r);
     } catch (e: any) {
       setErr(e?.message || "Rapor alınamadı");
@@ -100,6 +102,7 @@ export default function ScenarioScreen() {
   }, [activeTab, loadReport]);
 
   function setSection(section: string, updater: (prev: any) => any) {
+    if (SCENARIO_SAVE_GATED) return;
     setInputs((prev) => {
       if (!prev) return prev;
       return { ...prev, [section]: updater(prev[section] || {}) };
@@ -108,6 +111,10 @@ export default function ScenarioScreen() {
 
   async function save() {
     if (!inputs || !schoolId || !scenarioId) return;
+    if (SCENARIO_SAVE_GATED) {
+      showToast("Mobil kayit henuz devre disi");
+      return;
+    }
     setSaving(true);
     setErr("");
     try {
@@ -165,13 +172,13 @@ export default function ScenarioScreen() {
           </View>
           <Button
             testID="scenario-save-button"
-            label={dirty ? "Kaydet" : "Kayıtlı"}
+            label={SCENARIO_SAVE_GATED ? "Salt okunur" : dirty ? "Kaydet" : "Kayıtlı"}
             onPress={save}
             small
             loading={saving}
-            disabled={!dirty}
-            icon={dirty ? "save-outline" : "checkmark"}
-            variant={dirty ? "primary" : "secondary"}
+            disabled={SCENARIO_SAVE_GATED || !dirty}
+            icon={SCENARIO_SAVE_GATED ? "lock-closed-outline" : dirty ? "save-outline" : "checkmark"}
+            variant={dirty && !SCENARIO_SAVE_GATED ? "primary" : "secondary"}
           />
         </View>
 
@@ -199,6 +206,17 @@ export default function ScenarioScreen() {
             <View style={styles.errBox}>
               <Ionicons name="alert-circle" size={16} color={colors.danger} />
               <Text style={styles.errText}>{err}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {SCENARIO_SAVE_GATED ? (
+          <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+            <View style={styles.readOnlyBox} testID="scenario-save-gated">
+              <Ionicons name="lock-closed-outline" size={16} color={colors.warn} />
+              <Text style={styles.readOnlyText}>
+                Mobil editor henüz üretim veri şekline tam port edilmedi. Bu ekranda kayıt kapalı.
+              </Text>
             </View>
           </View>
         ) : null}
@@ -582,12 +600,33 @@ function RaporTab({
   dirty: boolean;
   onReload: () => void;
 }) {
-  if (loading || !report) {
+  if (loading) {
     return (
       <Card>
         <View style={{ padding: spacing.lg, alignItems: "center" }}>
           <ActivityIndicator color={colors.primary} />
           <Text style={{ color: colors.textDim, marginTop: 10 }}>Rapor hesaplanıyor...</Text>
+        </View>
+      </Card>
+    );
+  }
+  if (!report || report.disabledMessage) {
+    return (
+      <Card>
+        <View style={{ padding: spacing.lg, alignItems: "center", gap: spacing.sm }}>
+          <Ionicons name="document-text-outline" size={28} color={colors.textDim} />
+          <Text style={{ color: colors.text, ...font.h3, textAlign: "center" }}>Rapor özeti hazır değil</Text>
+          <Text style={{ color: colors.textDim, ...font.small, textAlign: "center" }}>
+            {report?.disabledMessage || "Rapor yüklenemedi veya backend henüz özet veri döndürmedi."}
+          </Text>
+          <Button
+            label="Yenile"
+            icon="refresh"
+            variant="secondary"
+            small
+            onPress={onReload}
+            testID="rapor-retry"
+          />
         </View>
       </Card>
     );
@@ -729,6 +768,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  readOnlyBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F9731622",
+    borderColor: "#F9731655",
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: radius.md,
+  },
+  readOnlyText: { color: "#FDBA74", ...font.small, flex: 1 },
   sectionTitle: { color: colors.text, ...font.h3 },
   sectionSub: { color: colors.textDim, ...font.small, marginTop: 4 },
   tinyLabel: { color: colors.textDim, ...font.small, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },

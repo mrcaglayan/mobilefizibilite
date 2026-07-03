@@ -51,7 +51,7 @@ export default function ManagerUserDetailScreen() {
     setErr("");
     try {
       const res = await api.managerListUsers();
-      const list: AdminUser[] = Array.isArray(res) ? res : res?.users || [];
+      const list: AdminUser[] = res.items;
       const found = list.find((u) => String(u.id) === String(id)) || null;
       setUser(found);
       setEmailDraft(found?.email || "");

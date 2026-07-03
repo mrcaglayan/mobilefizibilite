@@ -36,10 +36,7 @@ export default function AdminCountriesScreen() {
     setErr("");
     try {
       const res = await api.adminListCountries();
-      const list: Country[] = Array.isArray(res)
-        ? (res as Country[])
-        : (res as any)?.countries || (res as any)?.items || [];
-      setCountries(list);
+      setCountries(res.items);
     } catch (e: any) {
       setErr(e?.message || "Yüklenemedi");
     } finally {

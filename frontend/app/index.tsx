@@ -7,14 +7,14 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { colors } from "@/src/theme";
 
 export default function Index() {
-  const { bootstrapping, token } = useAuth();
+  const { bootstrapping, token, user } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (bootstrapping) return;
-    if (token) router.replace("/schools");
+    if (token) router.replace(user?.must_reset_password ? "/profile" : "/schools");
     else router.replace("/login");
-  }, [bootstrapping, token, router]);
+  }, [bootstrapping, token, user?.must_reset_password, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>

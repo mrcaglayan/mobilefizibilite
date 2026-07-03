@@ -1,15 +1,14 @@
-import { Stack } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
-import { LogBox, StatusBar } from "react-native";
+import { type ReactNode, useEffect } from "react";
+import { ActivityIndicator, StatusBar, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
-import { AuthProvider } from "@/src/auth/AuthContext";
+import { AuthProvider, useAuth } from "@/src/auth/AuthContext";
 import { colors } from "@/src/theme";
 
-LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -28,15 +27,71 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AuthProvider>
           <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.bg },
-              animation: "slide_from_right",
-            }}
-          />
+          <ProtectedRoutes>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.bg },
+                animation: "slide_from_right",
+              }}
+            />
+          </ProtectedRoutes>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+function ProtectedRoutes({ children }: { children: ReactNode }) {
+  const { bootstrapping, token, user } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (bootstrapping) return;
+
+    const isLogin = pathname === "/login";
+    const isProfile = pathname === "/profile";
+    const isIndex = pathname === "/";
+
+    if (!token) {
+      if (!isLogin) router.replace("/login");
+      return;
+    }
+
+    if (user?.must_reset_password) {
+      if (!isProfile) router.replace("/profile");
+      return;
+    }
+
+    if (isLogin || isIndex) {
+      router.replace("/schools");
+    }
+  }, [bootstrapping, pathname, router, token, user?.must_reset_password]);
+
+  if (bootstrapping) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!token && pathname !== "/login") {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (token && user?.must_reset_password && pathname !== "/profile") {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  return children;
 }

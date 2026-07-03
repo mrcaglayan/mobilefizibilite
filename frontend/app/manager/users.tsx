@@ -56,8 +56,7 @@ export default function ManagerUsersScreen() {
     setErr("");
     try {
       const res = await api.managerListUsers();
-      const list: AdminUser[] = Array.isArray(res) ? res : res?.users || [];
-      setUsers(list);
+      setUsers(res.items);
     } catch (e: any) {
       setErr(e?.message || "Yüklenemedi");
     } finally {

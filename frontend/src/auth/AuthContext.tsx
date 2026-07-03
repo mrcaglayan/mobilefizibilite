@@ -8,6 +8,8 @@ type AuthState = {
   user: User | null;
   bootstrapping: boolean;
   login: (email: string, password: string, remember: boolean) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<User>;
+  setSession: (session: { token?: string | null; user?: User | null }) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -43,6 +45,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return res.user;
   }, []);
 
+  const setSession = useCallback(async (session: { token?: string | null; user?: User | null }) => {
+    if (!session?.token) return;
+    await saveToken(session.token);
+    setToken(session.token);
+    setUser(session.user || null);
+  }, []);
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const res = await api.changePassword({ currentPassword, newPassword });
+      await setSession(res);
+      return res.user;
+    },
+    [setSession],
+  );
+
   const logout = useCallback(async () => {
     await saveToken(null);
     setToken(null);
@@ -50,8 +68,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ token, user, bootstrapping, login, logout }),
-    [token, user, bootstrapping, login, logout],
+    () => ({ token, user, bootstrapping, login, changePassword, setSession, logout }),
+    [token, user, bootstrapping, login, changePassword, setSession, logout],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

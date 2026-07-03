@@ -53,14 +53,10 @@ export default function AdminUsersScreen() {
     try {
       const [uRes, cRes] = await Promise.all([
         api.adminListUsers({ limit: 200 }),
-        api.adminListCountries().catch(() => [] as any),
+        api.adminListCountries().catch(() => ({ items: [] })),
       ]);
-      const uList: AdminUser[] = Array.isArray(uRes) ? uRes : uRes?.users || [];
-      const cList: Country[] = Array.isArray(cRes)
-        ? (cRes as Country[])
-        : (cRes as any)?.countries || (cRes as any)?.items || [];
-      setUsers(uList);
-      setCountries(cList);
+      setUsers(uRes.items);
+      setCountries(cRes.items);
     } catch (e: any) {
       setErr(e?.message || "Yüklenemedi");
     } finally {

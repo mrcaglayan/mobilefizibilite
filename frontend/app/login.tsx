@@ -23,7 +23,7 @@ import { loadRemembered, saveRemembered } from "@/src/api/client";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, token, bootstrapping } = useAuth();
+  const { login, token, user, bootstrapping } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -36,25 +36,24 @@ export default function LoginScreen() {
       const r = await loadRemembered();
       if (r) {
         setEmail(r.email);
-        setPassword(r.password);
         setRemember(true);
       }
     })();
   }, []);
 
   useEffect(() => {
-    if (!bootstrapping && token) router.replace("/schools");
-  }, [bootstrapping, token, router]);
+    if (!bootstrapping && token) router.replace(user?.must_reset_password ? "/profile" : "/schools");
+  }, [bootstrapping, token, user?.must_reset_password, router]);
 
   async function submit() {
     setErr("");
     setLoading(true);
     try {
-      await login(email.trim(), password, remember);
-      if (remember) await saveRemembered({ email: email.trim(), password });
+      const loggedInUser = await login(email.trim(), password, remember);
+      if (remember) await saveRemembered({ email: email.trim() });
       else await saveRemembered(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/schools");
+      router.replace(loggedInUser.must_reset_password ? "/profile" : "/schools");
     } catch (e: any) {
       setErr(e?.message || "Giriş başarısız");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -174,13 +173,6 @@ export default function LoginScreen() {
               testID="login-submit-button"
               style={{ marginTop: spacing.md }}
             />
-
-            <View style={styles.demoBox} testID="login-demo-hint">
-              <Ionicons name="information-circle-outline" size={14} color={colors.textDim} />
-              <Text style={styles.demoText}>
-                Demo: <Text style={{ color: colors.text }}>demo@feasibility.io</Text> / demo1234
-              </Text>
-            </View>
           </View>
 
           <Text style={styles.footer}>
@@ -277,18 +269,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   errText: { color: "#FCA5A5", ...font.small, flex: 1 },
-  demoBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: spacing.md,
-    padding: 10,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev2,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  demoText: { color: colors.textDim, ...font.small },
   footer: {
     textAlign: "center",
     color: colors.textMuted,

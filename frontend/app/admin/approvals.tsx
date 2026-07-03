@@ -90,10 +90,10 @@ export default function AdminApprovalsScreen() {
     try {
       if (view === "scenarios") {
         const res = await api.adminGetScenarioQueue(statusFilter ? { status: statusFilter } : {});
-        setScenarios(Array.isArray(res) ? res : []);
+        setScenarios(res);
       } else {
         const res = await api.adminGetApprovalBatchQueue(statusFilter ? { status: statusFilter } : {});
-        setBatches(Array.isArray(res) ? res : []);
+        setBatches(res);
       }
     } catch (e: any) {
       setErr(e?.message || "Yüklenemedi");
@@ -437,7 +437,7 @@ function ReviewSheet({
       setItemsLoading(true);
       api
         .adminGetApprovalBatch(target.row.batch_id)
-        .then((res) => setBatchItems(res.items || []))
+        .then((res) => setBatchItems(res.items))
         .catch(() => setBatchItems([]))
         .finally(() => setItemsLoading(false));
     }

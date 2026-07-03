@@ -42,12 +42,10 @@ export default function AdminCountryScreen() {
         api.adminListCountries(),
         api.adminListCountrySchools(id, { includeClosed: true }),
       ]);
-      const list: Country[] = Array.isArray(cRes)
-        ? (cRes as Country[])
-        : (cRes as any)?.countries || (cRes as any)?.items || [];
+      const list: Country[] = cRes.items;
       const found = list.find((c) => String(c.id) === String(id)) || null;
       setCountry(found);
-      setSchools(Array.isArray(sRes) ? sRes : []);
+      setSchools(sRes.items);
     } catch (e: any) {
       setErr(e?.message || "Yüklenemedi");
     } finally {
