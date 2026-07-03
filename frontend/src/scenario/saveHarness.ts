@@ -12,6 +12,7 @@ export type ScenarioModuleSaveAdapter<TDraft> = {
   enabled: boolean;
   allowedPathPrefixes: string[];
   allowWholeCollectionReplace?: boolean;
+  allowStructuredValueReplace?: boolean;
   toInputPatches: (draft: TDraft, currentInputs: Inputs) => InputPatch[];
   validate?: (draft: TDraft, currentInputs: Inputs) => ModuleValidationResult;
 };
@@ -25,7 +26,7 @@ export type ScenarioModuleSavePayload = {
 export const MODULE_ALLOWED_PATH_PREFIXES = {
   temel_bilgiler: ["temelBilgiler"],
   kapasite: ["kapasite"],
-  norm: ["gradesYears", "gradesCurrent", "norm"],
+  norm: ["gradesYears", "gradesCurrent", "grades", "norm"],
   ik: ["ik"],
   gelirler: ["gelirler"],
   discounts: ["discounts"],
@@ -71,6 +72,10 @@ function isDangerousWholeCollectionPatch(inputPath: string) {
   const parts = inputPath.split(".").filter(Boolean);
   const last = parts[parts.length - 1];
   return DANGEROUS_COLLECTION_KEYS.has(last);
+}
+
+function isStructuredPatchValue(value: unknown) {
+  return value != null && typeof value === "object";
 }
 
 export function buildScenarioModuleSavePayload<TDraft>({
@@ -132,6 +137,13 @@ export function buildScenarioModuleSavePayload<TDraft>({
       throw new ModuleSaveError(
         "WHOLE_COLLECTION_REPLACE_BLOCKED",
         `${adapter.moduleId} attempted to replace a collection path. Patch individual fields instead.`,
+        { path: inputPath },
+      );
+    }
+    if (!adapter.allowStructuredValueReplace && isStructuredPatchValue(patch.value)) {
+      throw new ModuleSaveError(
+        "STRUCTURED_VALUE_REPLACE_BLOCKED",
+        `${adapter.moduleId} attempted to replace an object or array value. Patch individual fields instead.`,
         { path: inputPath },
       );
     }

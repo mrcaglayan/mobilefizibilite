@@ -17,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 
 import {
+  Id,
   Inputs,
   Report,
   Scenario,
@@ -27,7 +28,7 @@ import {
   api,
 } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
-import { can } from "@/src/auth/permissions";
+import { can, PermissionScope } from "@/src/auth/permissions";
 import {
   areRequiredWorkItemsApproved,
   canForwardScenario,
@@ -43,6 +44,26 @@ import {
 } from "@/src/scenario/workflow";
 import { toDirtyInputPath } from "@/src/scenario/patch";
 import { saveScenarioModule } from "@/src/scenario/saveHarness";
+import { NormEditor } from "@/src/scenario/NormEditor";
+import {
+  normGradesSaveAdapter,
+  NormDraft,
+} from "@/src/scenario/normGradesAdapter";
+import { IkEditor } from "@/src/scenario/IkEditor";
+import {
+  ikSaveAdapter,
+  IkDraft,
+} from "@/src/scenario/ikAdapter";
+import { GelirlerEditor } from "@/src/scenario/GelirlerEditor";
+import {
+  gelirlerSaveAdapter,
+  GelirlerDraft,
+} from "@/src/scenario/gelirlerAdapter";
+import { KapasiteEditor } from "@/src/scenario/KapasiteEditor";
+import {
+  kapasiteSaveAdapter,
+  KapasiteDraft,
+} from "@/src/scenario/kapasiteAdapter";
 import { TemelBilgilerEditor } from "@/src/scenario/TemelBilgilerEditor";
 import {
   temelBilgilerSaveAdapter,
@@ -321,7 +342,7 @@ export default function ScenarioScreen() {
   const effectiveRequiredWorkIds = useMemo(() => getRequiredWorkIds(inputs, requiredWorkIds), [inputs, requiredWorkIds]);
   const requiredSet = useMemo(() => new Set(effectiveRequiredWorkIds), [effectiveRequiredWorkIds]);
   const isHeadquarter = isHeadquarterScenario(inputs);
-  const permissionScope = useMemo(
+  const permissionScope = useMemo<PermissionScope>(
     () => ({
       countryId: user?.country_id ?? null,
       schoolId: schoolId ?? null,
@@ -437,7 +458,13 @@ export default function ScenarioScreen() {
   }, [dirty, navigation, warnUnsavedNavigation]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
+    if (
+      typeof window === "undefined" ||
+      typeof window.addEventListener !== "function" ||
+      typeof window.removeEventListener !== "function"
+    ) {
+      return undefined;
+    }
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!dirty) return;
       event.preventDefault();
@@ -570,7 +597,7 @@ export default function ScenarioScreen() {
     }
   }, [activeModule.workId, canSubmitActive, load, scenarioId, schoolId]);
 
-  const handleTemelDirtyPathsChange = useCallback((paths: string[]) => {
+  const handleModuleDirtyPathsChange = useCallback((paths: string[]) => {
     const dirtyInputPaths = paths.map((path) => toDirtyInputPath(path));
     setDirtyResources(buildModifiedResourcesFromPaths(dirtyInputPaths));
   }, []);
@@ -593,6 +620,115 @@ export default function ScenarioScreen() {
         setActionMessage("Temel Bilgiler kaydedildi.");
       } catch (e: any) {
         setActionMessage(e?.message || "Temel Bilgiler kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [inputs, load, scenarioId, schoolId],
+  );
+
+  const handleSaveKapasite = useCallback(
+    async (draft: KapasiteDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        await saveScenarioModule({
+          schoolId,
+          scenarioId,
+          adapter: kapasiteSaveAdapter,
+          draft,
+          currentInputs: inputs,
+        });
+        setDirtyResources([]);
+        await load();
+        setActionMessage("Kapasite kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Kapasite kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [inputs, load, scenarioId, schoolId],
+  );
+
+  const handleSaveNorm = useCallback(
+    async (draft: NormDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        if (draft.inputDirtyPaths.length) {
+          await saveScenarioModule({
+            schoolId,
+            scenarioId,
+            adapter: normGradesSaveAdapter,
+            draft,
+            currentInputs: inputs,
+          });
+        }
+        if (draft.normDirtyPaths.length) {
+          await api.saveNormConfig(schoolId, scenarioId, draft.norm);
+        }
+        setDirtyResources([]);
+        await load();
+        setActionMessage("Norm kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Norm kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [inputs, load, scenarioId, schoolId],
+  );
+
+  const handleSaveIk = useCallback(
+    async (draft: IkDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        await saveScenarioModule({
+          schoolId,
+          scenarioId,
+          adapter: ikSaveAdapter,
+          draft,
+          currentInputs: inputs,
+        });
+        setDirtyResources([]);
+        await load();
+        setActionMessage("IK kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "IK kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [inputs, load, scenarioId, schoolId],
+  );
+
+  const handleSaveGelirler = useCallback(
+    async (draft: GelirlerDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        await saveScenarioModule({
+          schoolId,
+          scenarioId,
+          adapter: gelirlerSaveAdapter,
+          draft,
+          currentInputs: inputs,
+        });
+        setDirtyResources([]);
+        await load();
+        setActionMessage("Gelirler kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Gelirler kaydedilemedi.");
         throw e;
       } finally {
         setActionBusy(null);
@@ -762,8 +898,17 @@ export default function ScenarioScreen() {
                   canWrite={activeCanWrite}
                   user={user}
                   savingTemelBilgiler={actionBusy === "save"}
-                  onTemelDirtyPathsChange={handleTemelDirtyPathsChange}
+                  savingKapasite={actionBusy === "save"}
+                  savingNorm={actionBusy === "save"}
+                  savingIk={actionBusy === "save"}
+                  savingGelirler={actionBusy === "save"}
+                  permissionScope={permissionScope}
+                  onModuleDirtyPathsChange={handleModuleDirtyPathsChange}
                   onSaveTemelBilgiler={handleSaveTemelBilgiler}
+                  onSaveKapasite={handleSaveKapasite}
+                  onSaveNorm={handleSaveNorm}
+                  onSaveIk={handleSaveIk}
+                  onSaveGelirler={handleSaveGelirler}
                 />
               )}
             </View>
@@ -952,8 +1097,17 @@ function ModulePanel({
   canWrite,
   user,
   savingTemelBilgiler,
-  onTemelDirtyPathsChange,
+  savingKapasite,
+  savingNorm,
+  savingIk,
+  savingGelirler,
+  permissionScope,
+  onModuleDirtyPathsChange,
   onSaveTemelBilgiler,
+  onSaveKapasite,
+  onSaveNorm,
+  onSaveIk,
+  onSaveGelirler,
 }: {
   module: ModuleDef;
   context: ScenarioContext | null;
@@ -965,19 +1119,36 @@ function ModulePanel({
   canWrite: boolean;
   user: User | null | undefined;
   savingTemelBilgiler: boolean;
-  onTemelDirtyPathsChange: (paths: string[]) => void;
+  savingKapasite: boolean;
+  savingNorm: boolean;
+  savingIk: boolean;
+  savingGelirler: boolean;
+  permissionScope: PermissionScope;
+  onModuleDirtyPathsChange: (paths: string[]) => void;
   onSaveTemelBilgiler: (draft: TemelBilgilerDraft) => Promise<void>;
+  onSaveKapasite: (draft: KapasiteDraft) => Promise<void>;
+  onSaveNorm: (draft: NormDraft) => Promise<void>;
+  onSaveIk: (draft: IkDraft) => Promise<void>;
+  onSaveGelirler: (draft: GelirlerDraft) => Promise<void>;
 }) {
   const moduleProgress = progressForModule(module, progress);
   const workMeta = workStateMeta(workItem?.state);
   const optionalReason = isHeadquarter && module.workId && !required ? "HQ senaryoda opsiyonel" : "";
+  const editorReady =
+    module.key === "temel_bilgiler" ||
+    module.key === "kapasite" ||
+    module.key === "norm.ders_dagilimi" ||
+    module.key === "ik.local_staff" ||
+    module.key === "gelirler.unit_fee";
   const lockReason = scenarioLocked
     ? "Senaryo kilitli"
     : workMeta.locked
       ? "Modul inceleme/onay durumunda"
       : !canWrite
         ? "Bu modul icin yazma yetkiniz yok"
-        : optionalReason || "Editor port edilene kadar salt okunur; tamamlanan modul footer'dan gonderilebilir";
+        : optionalReason || (editorReady
+          ? "Degisiklikleri kaydetmeden modul degistirilemez"
+          : "Editor port edilene kadar salt okunur; tamamlanan modul footer'dan gonderilebilir");
   const canEditModule = canWrite && !scenarioLocked && !workMeta.locked;
 
   return (
@@ -1045,8 +1216,56 @@ function ModulePanel({
           canEdit={canEditModule}
           disabledReason={lockReason}
           saving={savingTemelBilgiler}
-          onDirtyPathsChange={onTemelDirtyPathsChange}
+          onDirtyPathsChange={onModuleDirtyPathsChange}
           onSave={onSaveTemelBilgiler}
+        />
+      ) : module.key === "kapasite" ? (
+        <KapasiteEditor
+          value={context?.inputs?.kapasite}
+          inputs={context?.inputs || null}
+          scenario={context?.scenario || null}
+          user={user}
+          canEdit={canEditModule}
+          disabledReason={lockReason}
+          saving={savingKapasite}
+          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onSave={onSaveKapasite}
+        />
+      ) : module.key === "norm.ders_dagilimi" ? (
+        <NormEditor
+          value={context?.norm}
+          inputs={context?.inputs || null}
+          scenario={context?.scenario || null}
+          canEditGradePlan={canEditModule}
+          canEditNormConfig={canEditModule && can(user, "page.norm", "write", permissionScope)}
+          disabledReason={lockReason}
+          saving={savingNorm}
+          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onSave={onSaveNorm}
+        />
+      ) : module.key === "ik.local_staff" ? (
+        <IkEditor
+          value={context?.inputs?.ik}
+          inputs={context?.inputs || null}
+          scenario={context?.scenario || null}
+          currencyCode={resolveCurrency(context?.scenario || null)}
+          canEdit={canEditModule}
+          disabledReason={lockReason}
+          saving={savingIk}
+          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onSave={onSaveIk}
+        />
+      ) : module.key === "gelirler.unit_fee" ? (
+        <GelirlerEditor
+          value={context?.inputs?.gelirler}
+          inputs={context?.inputs || null}
+          scenario={context?.scenario || null}
+          currencyCode={resolveCurrency(context?.scenario || null)}
+          canEdit={canEditModule}
+          disabledReason={lockReason}
+          saving={savingGelirler}
+          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onSave={onSaveGelirler}
         />
       ) : (
         <ModuleReadOnlySummary module={module} context={context} />
