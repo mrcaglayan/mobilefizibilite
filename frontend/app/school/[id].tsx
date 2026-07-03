@@ -78,7 +78,7 @@ export default function SchoolScreen() {
       ) : (
         <FlatList
           data={scenarios}
-          keyExtractor={(s) => s.id}
+          keyExtractor={(s) => String(s.id)}
           contentContainerStyle={{
             padding: spacing.lg,
             paddingBottom: insets.bottom + spacing.xl,

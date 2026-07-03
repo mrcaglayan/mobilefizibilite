@@ -56,7 +56,7 @@ export default function AdminUserDetailScreen() {
     setErr("");
     try {
       const [uRes, cRes] = await Promise.all([
-        api.adminListUsers({ limit: 500 }),
+        api.adminListUsers(),
         api.adminListCountries().catch(() => [] as any),
       ]);
       const list: AdminUser[] = Array.isArray(uRes) ? uRes : uRes?.users || [];
@@ -169,9 +169,17 @@ export default function AdminUserDetailScreen() {
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Kullanıcı Bulunamadı</Text>
+            <Text style={styles.headerTitle}>{err ? "Yüklenemedi" : "Kullanıcı Bulunamadı"}</Text>
           </View>
         </View>
+        {err ? (
+          <View style={{ padding: spacing.lg }}>
+            <View style={styles.errBox} testID="admin-user-error">
+              <Ionicons name="alert-circle" size={16} color={colors.danger} />
+              <Text style={styles.errText}>{err}</Text>
+            </View>
+          </View>
+        ) : null}
       </SafeAreaView>
     );
   }

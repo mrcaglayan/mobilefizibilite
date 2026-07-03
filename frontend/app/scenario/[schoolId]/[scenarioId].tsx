@@ -37,6 +37,13 @@ const KADEMELER = [
   { key: "lise", label: "Lise" },
 ];
 
+type SectionPatch = Record<string, unknown>;
+type CurrencyTabProps = {
+  value: any;
+  currency: string;
+  onChange: (u: SectionPatch) => void;
+};
+
 export default function ScenarioScreen() {
   const { schoolId, scenarioId } = useLocalSearchParams<{ schoolId: string; scenarioId: string }>();
   const insets = useSafeAreaInsets();
@@ -405,7 +412,7 @@ function KapasiteTab({ value, onChange }: { value: any; onChange: (u: any) => vo
   );
 }
 
-function IKTab({ value, currency, onChange }: any) {
+function IKTab({ value, currency, onChange }: CurrencyTabProps) {
   const totalStaff =
     Number(value.ogretmenSayisi || 0) +
     Number(value.idariPersonel || 0) +
@@ -465,7 +472,7 @@ function IKTab({ value, currency, onChange }: any) {
   );
 }
 
-function GelirlerTab({ value, currency, onChange }: any) {
+function GelirlerTab({ value, currency, onChange }: CurrencyTabProps) {
   return (
     <>
       <SectionCard title="Öğrenim Ücreti" subtitle="Öğrenci başına yıllık ücret">
@@ -505,7 +512,7 @@ function GelirlerTab({ value, currency, onChange }: any) {
   );
 }
 
-function GiderlerTab({ value, currency, onChange }: any) {
+function GiderlerTab({ value, currency, onChange }: CurrencyTabProps) {
   const total =
     Number(value.personel || 0) +
     Number(value.kira || 0) +

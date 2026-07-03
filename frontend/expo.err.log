@@ -1,0 +1,8 @@
+none : The term 'none' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the
+ spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:14
++ $env:BROWSER=none; corepack yarn expo start --web --port 8081
++              ~~~~
+    + CategoryInfo          : ObjectNotFound: (none:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 

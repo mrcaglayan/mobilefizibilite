@@ -86,6 +86,19 @@ async function request<T = any>(path: string, opts: RequestOpts = {}): Promise<T
   return data as T;
 }
 
+function normalizeList<T>(data: any, keys: string[]): { items: T[]; total: number } {
+  const items = Array.isArray(data)
+    ? data
+    : keys.reduce<T[] | null>((found, key) => {
+        if (found) return found;
+        return Array.isArray(data?.[key]) ? data[key] : null;
+      }, null) || [];
+  return {
+    items,
+    total: Number(data?.total ?? items.length),
+  };
+}
+
 // ---------------- API surface ----------------
 export type User = {
   id: string;
@@ -100,7 +113,7 @@ export type User = {
 export type LoginResponse = { token: string; user: User };
 
 export type School = {
-  id: string;
+  id: string | number;
   name: string;
   city?: string;
   country_id?: number;
@@ -110,8 +123,8 @@ export type School = {
 };
 
 export type Scenario = {
-  id: string;
-  school_id: string;
+  id: string | number;
+  school_id: string | number;
   name: string;
   input_currency: string;
   fx_usd_to_local?: number;
@@ -215,11 +228,13 @@ export const api = {
     request<LoginResponse>("/auth/login", { method: "POST", body: { email, password } }),
   me: () => request<User>("/auth/me"),
 
-  listSchools: () => request<{ items: School[]; total: number }>("/schools"),
+  listSchools: async () => normalizeList<School>(await request<any>("/schools"), ["items", "schools"]),
   getSchool: (id: string) => request<School>(`/schools/${id}`),
 
   listScenarios: (schoolId: string) =>
-    request<{ items: Scenario[]; total: number }>(`/schools/${schoolId}/scenarios`),
+    request<any>(`/schools/${schoolId}/scenarios`).then((res) =>
+      normalizeList<Scenario>(res, ["items", "scenarios"]),
+    ),
   getInputs: (schoolId: string, scenarioId: string) =>
     request<{ inputs: Inputs }>(`/schools/${schoolId}/scenarios/${scenarioId}/inputs`),
   saveInputs: (schoolId: string, scenarioId: string, inputs: Inputs, modifiedResources?: string[]) =>

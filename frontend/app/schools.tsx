@@ -51,6 +51,25 @@ function AdminTile({
   );
 }
 
+function roleLabel(role?: string) {
+  switch (role) {
+    case "admin":
+      return "Yönetici";
+    case "manager":
+      return "Müdür";
+    case "accountant":
+      return "Muhasebeci";
+    case "principal":
+      return "Okul Müdürü";
+    case "hr":
+      return "İK";
+    case "user":
+      return "Kullanıcı";
+    default:
+      return role || "Kullanıcı";
+  }
+}
+
 export default function SchoolsScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
@@ -104,7 +123,7 @@ export default function SchoolsScreen() {
           {user?.email || "-"}
         </Text>
         <Text style={styles.roleLine}>
-          {user?.role === "admin" ? "Yönetici" : user?.role === "manager" ? "Müdür" : "Kullanıcı"}
+          {roleLabel(user?.role)}
           {user?.country_name ? ` · ${user.country_name}` : ""}
         </Text>
 
@@ -170,7 +189,7 @@ export default function SchoolsScreen() {
       ) : (
         <FlatList
           data={schools}
-          keyExtractor={(s) => s.id}
+          keyExtractor={(s) => String(s.id)}
           contentContainerStyle={{
             paddingHorizontal: spacing.lg,
             paddingBottom: insets.bottom + spacing.xl,

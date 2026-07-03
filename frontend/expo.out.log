@@ -1,0 +1,24 @@
+yarn run v1.22.22
+$ C:\Users\Maarif\Desktop\mobilefizibilite\frontend\node_modules\.bin\expo start --web --port 8081
+env: load .env.local
+env: export EXPO_PUBLIC_BACKEND_URL
+Starting project at C:\Users\Maarif\Desktop\mobilefizibilite\frontend
+Starting Metro Bundler
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Web node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  1.0% (1/1)
+Web node_modules\expo-router\entry.js ▓▓▓▓░░░░░░░░░░░░ 25.0% ( 56/148)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓░░░░░░░ 56.6% (179/244)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓░░░░░░░ 61.0% (270/384)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓░░░░░░░ 61.0% (365/498)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.6% (507/656)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 78.2% (750/848)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 92.4% ( 963/1045)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 92.4% (1112/1180)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 96.8% (1238/1265)
+Web Bundled 37530ms node_modules\expo-router\entry.js (1320 modules)
+ LOG  [web] Logs will appear in the browser console
+Web node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 135ms node_modules\expo-router\entry.js (1 module)
+ LOG  [web] Logs will appear in the browser console
