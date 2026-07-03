@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useAuth } from "@/src/auth/AuthContext";
+import { getHomeRoute } from "@/src/auth/routes";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { BrandMark, Button, Input } from "@/src/ui/components";
 import { loadRemembered, saveRemembered } from "@/src/api/client";
@@ -42,8 +43,8 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    if (!bootstrapping && token) router.replace(user?.must_reset_password ? "/profile" : "/schools");
-  }, [bootstrapping, token, user?.must_reset_password, router]);
+    if (!bootstrapping && token) router.replace(getHomeRoute(user));
+  }, [bootstrapping, token, user, router]);
 
   async function submit() {
     setErr("");
@@ -53,7 +54,7 @@ export default function LoginScreen() {
       if (remember) await saveRemembered({ email: email.trim() });
       else await saveRemembered(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(loggedInUser.must_reset_password ? "/profile" : "/schools");
+      router.replace(getHomeRoute(loggedInUser));
     } catch (e: any) {
       setErr(e?.message || "Giriş başarısız");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

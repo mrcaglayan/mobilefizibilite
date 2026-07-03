@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider, useAuth } from "@/src/auth/AuthContext";
+import { getHomeRoute } from "@/src/auth/routes";
 import { colors } from "@/src/theme";
 
 SplashScreen.preventAutoHideAsync();
@@ -65,9 +66,9 @@ function ProtectedRoutes({ children }: { children: ReactNode }) {
     }
 
     if (isLogin || isIndex) {
-      router.replace("/schools");
+      router.replace(getHomeRoute(user));
     }
-  }, [bootstrapping, pathname, router, token, user?.must_reset_password]);
+  }, [bootstrapping, pathname, router, token, user]);
 
   if (bootstrapping) {
     return (

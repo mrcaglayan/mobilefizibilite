@@ -39,11 +39,12 @@ const STATUS_FILTERS: { key: string; label: string }[] = [
 ];
 
 const WORK_IDS = [
-  { key: "temelBilgiler", label: "Temel Bilgiler" },
+  { key: "temel_bilgiler", label: "Temel Bilgiler" },
   { key: "kapasite", label: "Kapasite" },
-  { key: "ik", label: "İK" },
-  { key: "gelirler", label: "Gelirler" },
-  { key: "giderler", label: "Giderler" },
+  { key: "norm.ders_dagilimi", label: "Norm" },
+  { key: "ik.local_staff", label: "IK" },
+  { key: "gelirler.unit_fee", label: "Gelirler" },
+  { key: "giderler.isletme", label: "Giderler" },
 ];
 
 const YEARS = [

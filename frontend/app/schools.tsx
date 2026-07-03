@@ -115,7 +115,7 @@ export default function SchoolsScreen() {
     schoolId: null,
   };
   const canManageManagerUsers =
-    user?.role === "manager" && can(user, "page.manage_permissions", "write", permissionScope);
+    user?.role === "manager" || can(user, "page.manage_permissions", "write", permissionScope);
   const canCreateSchool =
     Boolean(user?.country_id) && can(user, "school.create", "write", permissionScope);
   const isPrincipal = user?.role === "principal";

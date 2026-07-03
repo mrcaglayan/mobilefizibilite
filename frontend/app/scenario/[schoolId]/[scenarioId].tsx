@@ -1,142 +1,529 @@
-// Scenario editor — 6 tabs (Temel Bilgiler, Kapasite, İK, Gelirler, Giderler, Rapor).
-// Tabs are chip-based sticky header. Each editor is a mobile-friendly form.
+// PR 03B scenario shell: production-safe workflow overview and gated actions.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
 
-import { api, Inputs, Report } from "@/src/api/client";
+import {
+  Inputs,
+  Report,
+  Scenario,
+  ScenarioContext,
+  ScenarioProgressResponse,
+  WorkItem,
+  api,
+} from "@/src/api/client";
+import { useAuth } from "@/src/auth/AuthContext";
+import { can } from "@/src/auth/permissions";
+import {
+  areRequiredWorkItemsApproved,
+  canForwardScenario,
+  canReadWorkItem,
+  canReviewWorkItems,
+  canSubmitWorkItemState,
+  canWriteWorkItem,
+  getRequiredWorkIds,
+  getSubmitResource,
+  isHeadquarterScenario,
+  type WorkId,
+} from "@/src/scenario/workflow";
 import { colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
-import { Card, Chip, NumberField, Row, Button, Input } from "@/src/ui/components";
+import { Button, Card, Chip, ProgressBar, Row } from "@/src/ui/components";
 
-const TABS = [
-  { key: "temelBilgiler", label: "Temel Bilgiler", icon: "document-text-outline" as const },
-  { key: "kapasite", label: "Kapasite", icon: "layers-outline" as const },
-  { key: "ik", label: "İK", icon: "people-outline" as const },
-  { key: "gelirler", label: "Gelirler", icon: "trending-up-outline" as const },
-  { key: "giderler", label: "Giderler", icon: "trending-down-outline" as const },
-  { key: "rapor", label: "Rapor", icon: "pie-chart-outline" as const },
-];
+type ModuleKey = WorkId | "rapor" | "detayli_rapor";
 
-const SCENARIO_SAVE_GATED = true;
-
-const KADEMELER = [
-  { key: "anaokulu", label: "Anaokulu" },
-  { key: "ilkokul", label: "İlkokul" },
-  { key: "ortaokul", label: "Ortaokul" },
-  { key: "lise", label: "Lise" },
-];
-
-type SectionPatch = Record<string, unknown>;
-type CurrencyTabProps = {
-  value: any;
-  currency: string;
-  onChange: (u: SectionPatch) => void;
+type ProgressTab = {
+  key: string;
+  label?: string;
+  pct?: number | null;
+  done?: boolean;
+  missingPreview?: string;
+  missingLines?: string[];
 };
+
+type ProgressModel = {
+  pct: number;
+  completedCount?: number;
+  totalCount?: number;
+  tabs: ProgressTab[];
+  missingDetailsLines: string[];
+};
+
+type ModuleDef = {
+  key: ModuleKey;
+  label: string;
+  shortLabel: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  workId?: WorkId;
+  progressKeys: string[];
+  readResource?: string;
+};
+
+type ActionBusy = "submit" | "approve" | "revise" | "send" | null;
+
+const MODULES: ModuleDef[] = [
+  {
+    key: "temel_bilgiler",
+    label: "Temel Bilgiler",
+    shortLabel: "Temel",
+    icon: "document-text-outline",
+    workId: "temel_bilgiler",
+    progressKeys: ["temelBilgiler"],
+  },
+  {
+    key: "kapasite",
+    label: "Kapasite",
+    shortLabel: "Kapasite",
+    icon: "layers-outline",
+    workId: "kapasite",
+    progressKeys: ["kapasite"],
+  },
+  {
+    key: "norm.ders_dagilimi",
+    label: "Norm",
+    shortLabel: "Norm",
+    icon: "grid-outline",
+    workId: "norm.ders_dagilimi",
+    progressKeys: ["gradesPlan", "norm"],
+  },
+  {
+    key: "ik.local_staff",
+    label: "IK",
+    shortLabel: "IK",
+    icon: "people-outline",
+    workId: "ik.local_staff",
+    progressKeys: ["ik"],
+  },
+  {
+    key: "gelirler.unit_fee",
+    label: "Gelirler",
+    shortLabel: "Gelir",
+    icon: "trending-up-outline",
+    workId: "gelirler.unit_fee",
+    progressKeys: ["gelirler"],
+  },
+  {
+    key: "giderler.isletme",
+    label: "Giderler",
+    shortLabel: "Gider",
+    icon: "trending-down-outline",
+    workId: "giderler.isletme",
+    progressKeys: ["giderler"],
+  },
+  {
+    key: "rapor",
+    label: "Rapor",
+    shortLabel: "Rapor",
+    icon: "pie-chart-outline",
+    progressKeys: [],
+    readResource: "page.rapor",
+  },
+  {
+    key: "detayli_rapor",
+    label: "Detayli Rapor",
+    shortLabel: "Detay",
+    icon: "document-outline",
+    progressKeys: [],
+    readResource: "page.detayli_rapor",
+  },
+];
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function num(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("tr-TR");
+}
+
+function scenarioLocked(scenario?: Scenario | null) {
+  const status = String(scenario?.status || "draft");
+  const submittedAt = scenario?.submitted_at != null;
+  const sentAt = scenario?.sent_at != null;
+  return (
+    status === "sent_for_approval" ||
+    status === "submitted" ||
+    (status === "approved" && sentAt) ||
+    (status === "in_review" && submittedAt)
+  );
+}
+
+function scenarioStatusMeta(scenario?: Scenario | null) {
+  const status = String(scenario?.status || "draft");
+  switch (status) {
+    case "revision_requested":
+      return { label: "Revizyon istendi", color: colors.warn, bg: "#F9731622", border: "#F9731655" };
+    case "in_review":
+      return { label: "Incelemede", color: "#93B5FF", bg: "#4C8DFF22", border: "#4C8DFF55" };
+    case "sent_for_approval":
+    case "submitted":
+      return { label: "Merkeze iletildi", color: colors.primary, bg: "#F5B30122", border: "#F5B30155" };
+    case "approved":
+      return {
+        label: scenario?.sent_at ? "Onaylandi" : "Kontrol edildi",
+        color: colors.success,
+        bg: "#22C55E22",
+        border: "#22C55E55",
+      };
+    case "draft":
+    default:
+      return { label: status === "draft" ? "Taslak" : status, color: colors.textDim, bg: colors.bgElev2, border: colors.border };
+  }
+}
+
+function workStateMeta(state?: string | null) {
+  switch (String(state || "not_started")) {
+    case "submitted":
+      return { label: "Incelemede", color: colors.primary, icon: "time-outline" as const, locked: true };
+    case "approved":
+      return { label: "Onaylandi", color: colors.success, icon: "checkmark-circle-outline" as const, locked: true };
+    case "needs_revision":
+      return { label: "Revizyon", color: colors.warn, icon: "return-up-back-outline" as const, locked: false };
+    case "in_progress":
+      return { label: "Calisiliyor", color: colors.accent, icon: "create-outline" as const, locked: false };
+    case "not_started":
+    default:
+      return { label: "Baslamadi", color: colors.textDim, icon: "ellipse-outline" as const, locked: false };
+  }
+}
+
+function normalizeProgress(payload?: ScenarioProgressResponse | null): ProgressModel | null {
+  const progress = payload?.progress && typeof payload.progress === "object"
+    ? (payload.progress as Record<string, unknown>)
+    : null;
+  if (!progress) return null;
+  return {
+    pct: num(progress.pct),
+    completedCount: progress.completedCount == null ? undefined : num(progress.completedCount),
+    totalCount: progress.totalCount == null ? undefined : num(progress.totalCount),
+    tabs: asArray(progress.tabs).map((tab) => asObject(tab)) as ProgressTab[],
+    missingDetailsLines: asArray(progress.missingDetailsLines).map((line) => String(line)).filter(Boolean),
+  };
+}
+
+function progressForModule(module: ModuleDef, progress: ProgressModel | null) {
+  if (!progress || !module.progressKeys.length) {
+    return { pct: null as number | null, done: false, missingLines: [] as string[] };
+  }
+  const tabs = progress.tabs.filter((tab) => module.progressKeys.includes(String(tab.key)));
+  if (!tabs.length) return { pct: null, done: false, missingLines: [] };
+  const pct = Math.round(tabs.reduce((sum, tab) => sum + num(tab.pct), 0) / tabs.length);
+  const done = tabs.every((tab) => tab.done === true);
+  const missingLines = tabs.flatMap((tab) => {
+    const lines = asArray(tab.missingLines).map((line) => String(line)).filter(Boolean);
+    if (lines.length) return lines;
+    return tab.missingPreview ? [String(tab.missingPreview)] : [];
+  });
+  return { pct, done, missingLines: Array.from(new Set(missingLines)).slice(0, 8) };
+}
+
+function resolveCurrency(scenario?: Scenario | null) {
+  if (scenario?.input_currency === "LOCAL") return scenario.local_currency_code || "LOCAL";
+  return "USD";
+}
+
+function countObjectKeys(value: unknown) {
+  return Object.keys(asObject(value)).length;
+}
+
+function countEnabledKademeler(inputs?: Inputs | null) {
+  const raw = asObject(inputs?.temelBilgiler).kademeler;
+  if (Array.isArray(raw)) return raw.length;
+  const obj = asObject(raw);
+  return Object.values(obj).filter((value) => {
+    if (value && typeof value === "object" && "enabled" in value) return Boolean((value as { enabled?: unknown }).enabled);
+    return Boolean(value);
+  }).length;
+}
+
+function countTuitionRows(inputs?: Inputs | null) {
+  return asArray(asObject(asObject(inputs?.gelirler).tuition).rows).length;
+}
+
+function countIncomeRows(inputs?: Inputs | null, key = "") {
+  const rows = asArray(asObject(asObject(inputs?.gelirler)[key]).rows);
+  return rows.length;
+}
+
+function countExpenseItems(inputs?: Inputs | null, key = "") {
+  return countObjectKeys(asObject(asObject(asObject(inputs?.giderler)[key]).items));
+}
+
+function countCurriculumEntries(norm: unknown): number {
+  const years = asObject(asObject(norm).years);
+  return Object.values(years).reduce<number>((sum, year) => {
+    const curriculum = asObject(asObject(year).curriculumWeeklyHours);
+    return sum + Object.values(curriculum).reduce<number>((inner, grade) => inner + countObjectKeys(grade), 0);
+  }, 0);
+}
 
 export default function ScenarioScreen() {
   const { schoolId, scenarioId } = useLocalSearchParams<{ schoolId: string; scenarioId: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState("temelBilgiler");
-  const [inputs, setInputs] = useState<Inputs | null>(null);
-  const [initial, setInitial] = useState<Inputs | null>(null);
+  const [activeTab, setActiveTab] = useState<ModuleKey>("temel_bilgiler");
+  const [context, setContext] = useState<ScenarioContext | null>(null);
+  const [progressRaw, setProgressRaw] = useState<ScenarioProgressResponse | null>(null);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [requiredWorkIds, setRequiredWorkIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const [metaWarning, setMetaWarning] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const [revisionComment, setRevisionComment] = useState("");
+  const [dirtyResources] = useState<string[]>([]);
 
-  const dirty = useMemo(
-    () => inputs && initial && JSON.stringify(inputs) !== JSON.stringify(initial),
-    [inputs, initial],
+  const progress = useMemo(() => normalizeProgress(progressRaw), [progressRaw]);
+  const scenario = context?.scenario || null;
+  const inputs = context?.inputs || null;
+  const locked = scenarioLocked(scenario);
+  const statusMeta = scenarioStatusMeta(scenario);
+  const effectiveRequiredWorkIds = useMemo(() => getRequiredWorkIds(inputs, requiredWorkIds), [inputs, requiredWorkIds]);
+  const requiredSet = useMemo(() => new Set(effectiveRequiredWorkIds), [effectiveRequiredWorkIds]);
+  const isHeadquarter = isHeadquarterScenario(inputs);
+  const permissionScope = useMemo(
+    () => ({
+      countryId: user?.country_id ?? null,
+      schoolId: schoolId ?? null,
+    }),
+    [schoolId, user?.country_id],
   );
+  const visibleModules = useMemo(
+    () =>
+      MODULES.filter((module) => {
+        if (module.workId) return canReadWorkItem(user, module.workId, permissionScope);
+        if (module.readResource) return can(user, module.readResource, "read", permissionScope);
+        return true;
+      }),
+    [permissionScope, user],
+  );
+  const dirty = dirtyResources.length > 0;
 
   const load = useCallback(async () => {
     if (!schoolId || !scenarioId) return;
     setErr("");
+    setMetaWarning("");
+    setActionMessage("");
     try {
-      const res = await api.getScenarioInputs(schoolId, scenarioId);
-      setInputs(res.inputs);
-      setInitial(res.inputs);
+      const contextResult = await api.getScenarioContext(schoolId, scenarioId);
+      setContext(contextResult);
+
+      const [progressResult, workResult] = await Promise.allSettled([
+        api.getScenarioProgress(schoolId, scenarioId),
+        api.listWorkItems(schoolId, scenarioId),
+      ]);
+
+      if (progressResult.status === "fulfilled") {
+        setProgressRaw(progressResult.value);
+      } else {
+        setProgressRaw(null);
+        setMetaWarning("Ilerleme bilgisi alinamadi.");
+      }
+
+      if (workResult.status === "fulfilled") {
+        setWorkItems(workResult.value.workItems);
+        setRequiredWorkIds(getRequiredWorkIds(contextResult.inputs, workResult.value.requiredWorkIds));
+      } else {
+        setWorkItems([]);
+        setRequiredWorkIds(getRequiredWorkIds(contextResult.inputs));
+        setMetaWarning((prev) => prev || "Is akisi bilgisi alinamadi.");
+      }
     } catch (e: any) {
-      setErr(e?.message || "Yüklenemedi");
+      setErr(e?.message || "Senaryo yuklenemedi.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [schoolId, scenarioId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const loadReport = useCallback(async () => {
     if (!schoolId || !scenarioId) return;
     setReportLoading(true);
     try {
-      const r = await api.getScenarioReport(schoolId, scenarioId);
-      setReport(r);
+      const data = await api.getScenarioReport(schoolId, scenarioId);
+      setReport(data);
     } catch (e: any) {
-      setErr(e?.message || "Rapor alınamadı");
+      setReport({
+        currency: resolveCurrency(scenario),
+        kpis: {},
+        gelirDagilim: [],
+        giderDagilim: [],
+        disabledMessage: e?.message || "Rapor yuklenemedi.",
+      });
     } finally {
       setReportLoading(false);
     }
-  }, [schoolId, scenarioId]);
+  }, [schoolId, scenarioId, scenario]);
 
   useEffect(() => {
-    if (activeTab === "rapor") loadReport();
-  }, [activeTab, loadReport]);
+    load();
+  }, [load]);
 
-  function setSection(section: string, updater: (prev: any) => any) {
-    if (SCENARIO_SAVE_GATED) return;
-    setInputs((prev) => {
-      if (!prev) return prev;
-      return { ...prev, [section]: updater(prev[section] || {}) };
-    });
-  }
-
-  async function save() {
-    if (!inputs || !schoolId || !scenarioId) return;
-    if (SCENARIO_SAVE_GATED) {
-      showToast("Mobil kayit henuz devre disi");
-      return;
+  useEffect(() => {
+    if (activeTab === "rapor" && !report && !reportLoading) {
+      loadReport();
     }
-    setSaving(true);
-    setErr("");
+  }, [activeTab, loadReport, report, reportLoading]);
+
+  useEffect(() => {
+    if (visibleModules.length && !visibleModules.some((module) => module.key === activeTab)) {
+      setActiveTab(visibleModules[0].key);
+    }
+  }, [activeTab, visibleModules]);
+
+  const activeModule = visibleModules.find((module) => module.key === activeTab) || visibleModules[0] || MODULES[0];
+  const activeWorkItem = activeModule.workId
+    ? workItems.find((item) => String(item.work_id) === activeModule.workId)
+    : undefined;
+  const activeModuleProgress = progressForModule(activeModule, progress);
+  const role = String(user?.role || "");
+  const scenarioStatus = String(scenario?.status || "draft");
+  const activeRequired = activeModule.workId ? requiredSet.has(activeModule.workId) : false;
+  const activeCanWrite = activeModule.workId ? canWriteWorkItem(user, activeModule.workId, permissionScope) : false;
+  const allRequiredApproved = areRequiredWorkItemsApproved(workItems, effectiveRequiredWorkIds);
+  const canShowSubmit =
+    visibleModules.length > 0 &&
+    Boolean(activeModule.workId) &&
+    ["admin", "principal", "hr", "manager", "accountant"].includes(role);
+  const submitBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (!activeModule.workId) {
+      blockers.push("Gonderilecek modul yok.");
+      return blockers;
+    }
+    if (!["draft", "in_review", "revision_requested"].includes(scenarioStatus)) {
+      blockers.push("Senaryo bu durumda modul gonderimine kapali.");
+    }
+    if (!activeRequired) blockers.push("HQ senaryoda bu modul zorunlu degil.");
+    if (!activeCanWrite) blockers.push("Bu modulu gonderme yetkiniz yok.");
+    if (!canSubmitWorkItemState(activeWorkItem)) blockers.push("Modul zaten incelemede veya onayli.");
+    if (!activeModuleProgress.done) blockers.push("Modul ilerlemesi tamamlanmali.");
+    if (dirty) blockers.push("Once degisiklikleri kaydedin.");
+    if (locked) blockers.push("Senaryo kilitli.");
+    return blockers;
+  }, [
+    activeCanWrite,
+    activeModule.workId,
+    activeModuleProgress.done,
+    activeRequired,
+    activeWorkItem,
+    dirty,
+    locked,
+    scenarioStatus,
+  ]);
+  const canSubmitActive = canShowSubmit && submitBlockers.length === 0;
+  const canReviewActive =
+    Boolean(activeModule.workId) &&
+    String(activeWorkItem?.state || "") === "submitted" &&
+    canReviewWorkItems(user, permissionScope) &&
+    !locked;
+  const showSendForApproval = canForwardScenario(user);
+  const sendBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (!showSendForApproval) return blockers;
+    if (scenarioStatus !== "approved") blockers.push("Once tum zorunlu moduller onaylanmali.");
+    if (scenario?.sent_at) blockers.push("Senaryo zaten merkeze iletilmis.");
+    if (!scenario?.checked_at) blockers.push("Yonetici kontrol tarihi bekleniyor.");
+    if (!allRequiredApproved) blockers.push("Zorunlu is kalemleri onayli degil.");
+    if (num(progress?.pct) < 100) blockers.push("Ilerleme %100 olmali.");
+    if (dirty) blockers.push("Once degisiklikleri kaydedin.");
+    if (locked) blockers.push("Senaryo kilitli.");
+    return blockers;
+  }, [allRequiredApproved, dirty, locked, progress?.pct, scenario?.checked_at, scenario?.sent_at, scenarioStatus, showSendForApproval]);
+  const canSendForApproval = showSendForApproval && sendBlockers.length === 0;
+  const showAdminApprovalLink = role === "admin" && scenarioStatus === "sent_for_approval";
+  const footerBlocker =
+    actionMessage ||
+    submitBlockers[0] ||
+    sendBlockers[0] ||
+    "Modul editorleri PR 04 ve sonrasinda port edilecek; kayit kapali.";
+
+  const handleSubmitActive = useCallback(async () => {
+    if (!schoolId || !scenarioId || !activeModule.workId || !canSubmitActive) return;
+    setActionBusy("submit");
+    setActionMessage("");
     try {
-      await api.saveInputs(schoolId, scenarioId, inputs);
-      setInitial(inputs);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToast("Kaydedildi");
-      if (activeTab === "rapor") await loadReport();
+      await api.submitWorkItem(schoolId, scenarioId, activeModule.workId, {
+        resource: getSubmitResource(activeModule.workId),
+      });
+      await load();
+      setActionMessage("Modul incelemeye gonderildi.");
     } catch (e: any) {
-      setErr(e?.message || "Kayıt başarısız");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setActionMessage(e?.message || "Modul gonderilemedi.");
     } finally {
-      setSaving(false);
+      setActionBusy(null);
     }
-  }
+  }, [activeModule.workId, canSubmitActive, load, scenarioId, schoolId]);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
-  }
+  const handleReviewActive = useCallback(
+    async (action: "approve" | "revise") => {
+      if (!schoolId || !scenarioId || !activeModule.workId || !canReviewActive) return;
+      setActionBusy(action === "approve" ? "approve" : "revise");
+      setActionMessage("");
+      try {
+        await api.reviewWorkItem(schoolId, scenarioId, activeModule.workId, {
+          action,
+          comment: action === "revise" ? revisionComment.trim() || undefined : undefined,
+        });
+        await load();
+        if (action === "revise") setRevisionComment("");
+        setActionMessage(action === "approve" ? "Modul onaylandi." : "Revizyon istendi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Islem basarisiz.");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [activeModule.workId, canReviewActive, load, revisionComment, scenarioId, schoolId],
+  );
 
-  const currency = inputs?.temelBilgiler?.kur || "TRY";
+  const handleSendForApproval = useCallback(async () => {
+    if (!schoolId || !scenarioId || !canSendForApproval) return;
+    setActionBusy("send");
+    setActionMessage("");
+    try {
+      const response = await api.sendForApproval(schoolId, scenarioId);
+      if (response.scenario) {
+        setContext((prev) => (prev ? { ...prev, scenario: { ...prev.scenario, ...response.scenario } } : prev));
+      }
+      await load();
+      setActionMessage("Senaryo merkeze iletildi.");
+    } catch (e: any) {
+      const reasons = Array.isArray(e?.data?.reasons) ? e.data.reasons.filter(Boolean) : [];
+      setActionMessage(reasons.length ? `Merkeze iletilemez: ${reasons.join(", ")}` : e?.message || "Iletme basarisiz.");
+    } finally {
+      setActionBusy(null);
+    }
+  }, [canSendForApproval, load, scenarioId, schoolId]);
 
   if (loading) {
     return (
@@ -150,585 +537,580 @@ export default function ScenarioScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]} testID="scenario-screen">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ flex: 1 }}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Pressable
-            testID="scenario-back-button"
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.backBtn}
-          >
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerLabel}>SENARYO</Text>
-            <Text numberOfLines={1} style={styles.headerTitle}>
-              {inputs?.temelBilgiler?.okulAdi || "Senaryo"}
-            </Text>
-          </View>
-          <Button
-            testID="scenario-save-button"
-            label={SCENARIO_SAVE_GATED ? "Salt okunur" : dirty ? "Kaydet" : "Kayıtlı"}
-            onPress={save}
-            small
-            loading={saving}
-            disabled={SCENARIO_SAVE_GATED || !dirty}
-            icon={SCENARIO_SAVE_GATED ? "lock-closed-outline" : dirty ? "save-outline" : "checkmark"}
-            variant={dirty && !SCENARIO_SAVE_GATED ? "primary" : "secondary"}
-          />
-        </View>
-
-        {/* Tabs */}
-        <View style={styles.tabRow}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" }}
-          >
-            {TABS.map((t) => (
-              <Chip
-                key={t.key}
-                label={t.label}
-                active={activeTab === t.key}
-                onPress={() => setActiveTab(t.key)}
-                testID={`tab-${t.key}`}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        {err ? (
-          <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-            <View style={styles.errBox}>
-              <Ionicons name="alert-circle" size={16} color={colors.danger} />
-              <Text style={styles.errText}>{err}</Text>
-            </View>
-          </View>
-        ) : null}
-
-        {SCENARIO_SAVE_GATED ? (
-          <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-            <View style={styles.readOnlyBox} testID="scenario-save-gated">
-              <Ionicons name="lock-closed-outline" size={16} color={colors.warn} />
-              <Text style={styles.readOnlyText}>
-                Mobil editor henüz üretim veri şekline tam port edilmedi. Bu ekranda kayıt kapalı.
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        <ScrollView
-          contentContainerStyle={{
-            padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
-            gap: spacing.md,
-          }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+      <View style={styles.header}>
+        <Pressable
+          testID="scenario-back-button"
+          onPress={() => router.back()}
+          hitSlop={12}
+          style={styles.backBtn}
         >
-          {activeTab === "temelBilgiler" && (
-            <TemelBilgilerTab
-              value={inputs?.temelBilgiler || {}}
-              onChange={(u) => setSection("temelBilgiler", (p) => ({ ...p, ...u }))}
-            />
-          )}
-          {activeTab === "kapasite" && (
-            <KapasiteTab
-              value={inputs?.kapasite || {}}
-              onChange={(u) => setSection("kapasite", (p) => ({ ...p, ...u }))}
-            />
-          )}
-          {activeTab === "ik" && (
-            <IKTab
-              value={inputs?.ik || {}}
-              currency={currency}
-              onChange={(u) => setSection("ik", (p) => ({ ...p, ...u }))}
-            />
-          )}
-          {activeTab === "gelirler" && (
-            <GelirlerTab
-              value={inputs?.gelirler || {}}
-              currency={currency}
-              onChange={(u) => setSection("gelirler", (p) => ({ ...p, ...u }))}
-            />
-          )}
-          {activeTab === "giderler" && (
-            <GiderlerTab
-              value={inputs?.giderler || {}}
-              currency={currency}
-              onChange={(u) => setSection("giderler", (p) => ({ ...p, ...u }))}
-            />
-          )}
-          {activeTab === "rapor" && (
-            <RaporTab report={report} loading={reportLoading} dirty={!!dirty} onReload={loadReport} />
-          )}
-        </ScrollView>
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerLabel}>SENARYO</Text>
+          <Text numberOfLines={1} style={styles.headerTitle}>
+            {scenario?.name || "Senaryo"}
+          </Text>
+          <Text style={styles.headerSub} numberOfLines={1}>
+            {scenario?.academic_year || "-"} · {resolveCurrency(scenario)}
+          </Text>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: statusMeta.bg, borderColor: statusMeta.border }]}>
+          <Text style={[styles.statusText, { color: statusMeta.color }]}>{statusMeta.label}</Text>
+        </View>
+      </View>
 
-        {toast ? (
-          <View style={[styles.toast, { bottom: insets.bottom + 20 }]} testID="scenario-toast">
-            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-            <Text style={styles.toastText}>{toast}</Text>
+      {err ? (
+        <View style={styles.errorWrap}>
+          <Card>
+            <Text style={styles.errorText}>{err}</Text>
+            <Button
+              label="Tekrar Dene"
+              icon="refresh-outline"
+              variant="secondary"
+              onPress={() => {
+                setLoading(true);
+                load();
+              }}
+              style={{ marginTop: spacing.md }}
+            />
+          </Card>
+        </View>
+      ) : (
+        <>
+          <ScrollView
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  load();
+                }}
+                tintColor={colors.primary}
+              />
+            }
+            contentContainerStyle={{
+              paddingBottom: insets.bottom + 180,
+            }}
+          >
+            <View style={styles.summaryWrap}>
+              <ScenarioSummary
+                progress={progress}
+                requiredCount={requiredSet.size}
+                isHeadquarter={isHeadquarter}
+                locked={locked}
+                metaWarning={metaWarning}
+              />
+            </View>
+
+            <View style={styles.tabRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tabContent}
+              >
+                {visibleModules.map((module) => {
+                  const required = module.workId ? requiredSet.has(module.workId) : false;
+                  return (
+                    <Chip
+                      key={module.key}
+                      label={required || !module.workId ? module.shortLabel : `${module.shortLabel} Ops.`}
+                      active={activeTab === module.key}
+                      onPress={() => setActiveTab(module.key)}
+                      testID={`tab-${module.key}`}
+                    />
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            <View style={styles.body}>
+              {!visibleModules.length ? (
+                <NoAccessPanel />
+              ) : activeTab === "rapor" ? (
+                <ReportPanel
+                  report={report}
+                  loading={reportLoading}
+                  onReload={loadReport}
+                  currency={resolveCurrency(scenario)}
+                />
+              ) : activeTab === "detayli_rapor" ? (
+                <DetailedReportPanel />
+              ) : (
+                <ModulePanel
+                  module={activeModule}
+                  context={context}
+                  progress={progress}
+                  workItem={activeWorkItem}
+                  required={activeModule.workId ? requiredSet.has(activeModule.workId) : false}
+                  isHeadquarter={isHeadquarter}
+                  scenarioLocked={locked}
+                  canWrite={activeCanWrite}
+                />
+              )}
+            </View>
+          </ScrollView>
+
+          <View style={[styles.stickyFooter, { paddingBottom: insets.bottom + spacing.sm }]}>
+            <View style={styles.footerTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.footerTitle}>
+                  {dirty ? "Kaydedilmemis degisiklik var" : "Workflow hazir"}
+                </Text>
+                <Text style={styles.footerSub} numberOfLines={2}>
+                  {footerBlocker}
+                </Text>
+              </View>
+              <Button
+                label="Yenile"
+                icon="refresh-outline"
+                variant="secondary"
+                small
+                onPress={load}
+                testID="scenario-refresh-button"
+              />
+            </View>
+            {canReviewActive ? (
+              <TextInput
+                value={revisionComment}
+                onChangeText={setRevisionComment}
+                placeholder="Revizyon notu"
+                placeholderTextColor={colors.textMuted}
+                style={styles.revisionInput}
+                multiline
+                testID="scenario-review-comment-input"
+              />
+            ) : null}
+            <View style={styles.footerActions}>
+              {canShowSubmit ? (
+                <Button
+                  label="Gonder"
+                  icon="paper-plane-outline"
+                  small
+                  disabled={!canSubmitActive || actionBusy != null}
+                  loading={actionBusy === "submit"}
+                  onPress={handleSubmitActive}
+                  style={styles.footerActionButton}
+                  testID="scenario-submit-work-item-button"
+                />
+              ) : null}
+              {canReviewActive ? (
+                <>
+                  <Button
+                    label="Onayla"
+                    icon="checkmark-circle-outline"
+                    small
+                    disabled={actionBusy != null}
+                    loading={actionBusy === "approve"}
+                    onPress={() => handleReviewActive("approve")}
+                    style={styles.footerActionButton}
+                    testID="scenario-approve-work-item-button"
+                  />
+                  <Button
+                    label="Revizyon"
+                    icon="return-up-back-outline"
+                    variant="secondary"
+                    small
+                    disabled={actionBusy != null}
+                    loading={actionBusy === "revise"}
+                    onPress={() => handleReviewActive("revise")}
+                    style={styles.footerActionButton}
+                    testID="scenario-revise-work-item-button"
+                  />
+                </>
+              ) : null}
+              {showSendForApproval ? (
+                <Button
+                  label="Merkeze Ilet"
+                  icon="send-outline"
+                  small
+                  disabled={!canSendForApproval || actionBusy != null}
+                  loading={actionBusy === "send"}
+                  onPress={handleSendForApproval}
+                  style={styles.footerActionButton}
+                  testID="scenario-send-for-approval-button"
+                />
+              ) : null}
+              {showAdminApprovalLink ? (
+                <Button
+                  label="Onaylar"
+                  icon="shield-checkmark-outline"
+                  variant="secondary"
+                  small
+                  onPress={() => router.push("/admin/approvals")}
+                  style={styles.footerActionButton}
+                  testID="scenario-admin-approvals-link"
+                />
+              ) : null}
+            </View>
           </View>
-        ) : null}
-      </KeyboardAvoidingView>
+        </>
+      )}
     </SafeAreaView>
   );
 }
 
-// ------------------- TABS -------------------
-
-function SectionCard({ title, subtitle, children }: any) {
+function NoAccessPanel() {
   return (
-    <Card>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.sectionSub}>{subtitle}</Text> : null}
-      <View style={{ height: spacing.md }} />
-      {children}
+    <Card testID="scenario-no-module-access">
+      <View style={styles.centerPad}>
+        <Ionicons name="lock-closed-outline" size={30} color={colors.textDim} />
+        <Text style={styles.sectionTitle}>Yetki Gerekli</Text>
+        <Text style={styles.emptyText}>
+          Bu senaryoda goruntuleyebileceginiz modul bulunmuyor. Modul veya rapor yetkisi icin yoneticinizle gorusun.
+        </Text>
+      </View>
     </Card>
   );
 }
 
-function TemelBilgilerTab({ value, onChange }: { value: any; onChange: (u: any) => void }) {
-  const kademeler: string[] = Array.isArray(value.kademeler) ? value.kademeler : [];
-
-  function toggleKademe(k: string) {
-    const next = kademeler.includes(k) ? kademeler.filter((x) => x !== k) : [...kademeler, k];
-    onChange({ kademeler: next });
-  }
-
-  const currencies = ["TRY", "USD", "EUR"];
-
+function ScenarioSummary({
+  progress,
+  requiredCount,
+  isHeadquarter,
+  locked,
+  metaWarning,
+}: {
+  progress: ProgressModel | null;
+  requiredCount: number;
+  isHeadquarter: boolean;
+  locked: boolean;
+  metaWarning: string;
+}) {
+  const pct = progress?.pct ?? 0;
   return (
-    <>
-      <SectionCard title="Okul Bilgileri" subtitle="Senaryonun temel tanımları">
-        <Input
-          label="Okul Adı"
-          value={value.okulAdi || ""}
-          onChangeText={(t) => onChange({ okulAdi: t })}
-          testID="tb-okul-adi"
-        />
-        <Input
-          label="Kampüs"
-          value={value.kampus || ""}
-          onChangeText={(t) => onChange({ kampus: t })}
-          testID="tb-kampus"
-        />
-        <Input
-          label="Şehir"
-          value={value.sehir || ""}
-          onChangeText={(t) => onChange({ sehir: t })}
-          testID="tb-sehir"
-        />
-      </SectionCard>
-
-      <SectionCard title="Kademeler" subtitle="Bu senaryoda işletilen kademeler">
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-          {KADEMELER.map((k) => (
-            <Chip
-              key={k.key}
-              label={k.label}
-              active={kademeler.includes(k.key)}
-              onPress={() => toggleKademe(k.key)}
-              testID={`tb-kademe-${k.key}`}
-            />
+    <Card testID="scenario-shell-summary">
+      <View style={styles.summaryHead}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>Senaryo Durumu</Text>
+          <Text style={styles.sectionSub}>
+            {isHeadquarter ? "HQ senaryo: yalniz IK, Gelirler ve Giderler zorunlu." : "Normal senaryo: tum ana moduller zorunlu."}
+          </Text>
+        </View>
+        {locked ? (
+          <View style={styles.lockBadge}>
+            <Ionicons name="lock-closed-outline" size={14} color={colors.warn} />
+            <Text style={styles.lockBadgeText}>Kilitli</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={{ marginTop: spacing.md }}>
+        <ProgressBar value={pct} />
+        <View style={styles.progressLine}>
+          <Text style={styles.progressText}>{Math.round(pct)}%</Text>
+          <Text style={styles.progressText}>
+            {progress?.completedCount ?? 0}/{progress?.totalCount ?? requiredCount} bolum
+          </Text>
+        </View>
+      </View>
+      {metaWarning ? (
+        <View style={styles.noticeBox}>
+          <Ionicons name="information-circle-outline" size={15} color={colors.warn} />
+          <Text style={styles.noticeText}>{metaWarning}</Text>
+        </View>
+      ) : null}
+      {progress?.missingDetailsLines?.length ? (
+        <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+          <Text style={styles.tinyLabel}>Eksik Alanlar</Text>
+          {progress.missingDetailsLines.slice(0, 4).map((line) => (
+            <Text key={line} style={styles.missingLine} numberOfLines={2}>
+              {line}
+            </Text>
           ))}
         </View>
-      </SectionCard>
+      ) : null}
+    </Card>
+  );
+}
 
-      <SectionCard title="Planlama" subtitle="Yıllık planlama ve para birimi">
-        <NumberField
-          label="Başlangıç Yılı"
-          value={value.baslangicYili}
-          onChange={(n) => onChange({ baslangicYili: n })}
-          testID="tb-baslangic"
-        />
-        <NumberField
-          label="Planlama Yılı Sayısı"
-          value={value.planlamaYili}
-          onChange={(n) => onChange({ planlamaYili: n })}
-          unit="yıl"
-          testID="tb-planlama"
-        />
-        <View style={{ marginBottom: spacing.md }}>
-          <Text style={styles.tinyLabel}>PARA BİRİMİ</Text>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            {currencies.map((c) => (
-              <Chip
-                key={c}
-                label={c}
-                active={value.kur === c}
-                onPress={() => onChange({ kur: c })}
-                testID={`tb-currency-${c}`}
-              />
-            ))}
+function ModulePanel({
+  module,
+  context,
+  progress,
+  workItem,
+  required,
+  isHeadquarter,
+  scenarioLocked,
+  canWrite,
+}: {
+  module: ModuleDef;
+  context: ScenarioContext | null;
+  progress: ProgressModel | null;
+  workItem?: WorkItem;
+  required: boolean;
+  isHeadquarter: boolean;
+  scenarioLocked: boolean;
+  canWrite: boolean;
+}) {
+  const moduleProgress = progressForModule(module, progress);
+  const workMeta = workStateMeta(workItem?.state);
+  const optionalReason = isHeadquarter && module.workId && !required ? "HQ senaryoda opsiyonel" : "";
+  const lockReason = scenarioLocked
+    ? "Senaryo kilitli"
+    : workMeta.locked
+      ? "Modul inceleme/onay durumunda"
+      : !canWrite
+        ? "Bu modul icin yazma yetkiniz yok"
+        : optionalReason || "Editor port edilene kadar salt okunur; tamamlanan modul footer'dan gonderilebilir";
+
+  return (
+    <>
+      <Card testID={`module-${module.key}`}>
+        <View style={styles.moduleTop}>
+          <View style={styles.moduleIcon}>
+            <Ionicons name={module.icon} size={20} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionTitle}>{module.label}</Text>
+            <Text style={styles.sectionSub}>{required ? "Zorunlu modul" : "Opsiyonel veya rapor modulu"}</Text>
+          </View>
+          {canWrite ? (
+            <View style={styles.writePill}>
+              <Text style={styles.writePillText}>Yazma</Text>
+            </View>
+          ) : null}
+          <View style={styles.workStatePill}>
+            <Ionicons name={workMeta.icon} size={13} color={workMeta.color} />
+            <Text style={[styles.workStateText, { color: workMeta.color }]}>{workMeta.label}</Text>
           </View>
         </View>
-      </SectionCard>
 
-      <SectionCard title="Notlar" subtitle="İsteğe bağlı açıklama">
-        <Input
-          value={value.notlar || ""}
-          onChangeText={(t) => onChange({ notlar: t })}
-          multiline
-          numberOfLines={3}
-          style={{ minHeight: 80, textAlignVertical: "top" }}
-          placeholder="Senaryo notları..."
-          testID="tb-notlar"
-        />
-      </SectionCard>
+        {moduleProgress.pct != null ? (
+          <View style={{ marginTop: spacing.md }}>
+            <ProgressBar value={moduleProgress.pct} />
+            <View style={styles.progressLine}>
+              <Text style={styles.progressText}>{Math.round(moduleProgress.pct)}%</Text>
+              <Text style={styles.progressText}>{moduleProgress.done ? "Tamam" : "Eksik"}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.noticeBox}>
+          <Ionicons name="lock-closed-outline" size={15} color={colors.warn} />
+          <Text style={styles.noticeText}>{lockReason}</Text>
+        </View>
+
+        {workItem?.manager_comment ? (
+          <View style={styles.commentBox}>
+            <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.textDim} />
+            <Text style={styles.commentText}>{workItem.manager_comment}</Text>
+          </View>
+        ) : null}
+
+        {moduleProgress.missingLines.length ? (
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <Text style={styles.tinyLabel}>Modul Eksikleri</Text>
+            {moduleProgress.missingLines.slice(0, 5).map((line) => (
+              <Text key={line} style={styles.missingLine} numberOfLines={2}>
+                {line}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </Card>
+
+      <ModuleReadOnlySummary module={module} context={context} />
     </>
   );
 }
 
-function KapasiteTab({ value, onChange }: { value: any; onChange: (u: any) => void }) {
-  const kapasite = Number(value.toplamKapasite || 0);
-  const doluluk = Number(value.hedefDoluluk || 0);
-  const aktif = Math.round(kapasite * (doluluk / 100));
+function ModuleReadOnlySummary({ module, context }: { module: ModuleDef; context: ScenarioContext | null }) {
+  const inputs = context?.inputs || null;
+  const scenario = context?.scenario || null;
+  const norm = context?.norm;
+  const currency = resolveCurrency(scenario);
+  const temel = asObject(inputs?.temelBilgiler);
+  const kapasite = asObject(inputs?.kapasite);
+  const years = asObject(kapasite.years);
 
-  return (
-    <>
-      <SectionCard title="Toplam Kapasite" subtitle="Fiziksel öğrenci kapasitesi">
-        <NumberField
-          label="Toplam Kapasite"
-          value={value.toplamKapasite}
-          onChange={(n) => onChange({ toplamKapasite: n })}
-          unit="öğrenci"
-          testID="kap-toplam"
-        />
-        <NumberField
-          label="Sınıf Sayısı"
-          value={value.siniflarSayisi}
-          onChange={(n) => onChange({ siniflarSayisi: n })}
-          unit="sınıf"
-          testID="kap-sinif"
-        />
-        <NumberField
-          label="Sınıf Başına Öğrenci"
-          value={value.sinifBasinaOgrenci}
-          onChange={(n) => onChange({ sinifBasinaOgrenci: n })}
-          unit="kişi"
-          testID="kap-sinif-ogrenci"
-        />
-        <NumberField
-          label="Hedef Doluluk"
-          value={value.hedefDoluluk}
-          onChange={(n) => onChange({ hedefDoluluk: n })}
-          unit="%"
-          testID="kap-doluluk"
-        />
-      </SectionCard>
+  if (module.key === "temel_bilgiler") {
+    return (
+      <Card>
+        <Text style={styles.sectionTitle}>Okuma Ozeti</Text>
+        <View style={{ marginTop: spacing.sm }}>
+          <Row label="Senaryo" value={scenario?.name || "-"} />
+          <Row label="Akademik yil" value={scenario?.academic_year || "-"} />
+          <Row label="Program tipi" value={String(temel.programType || scenario?.program_type || "-")} />
+          <Row label="Etkin kademe" value={formatInt(countEnabledKademeler(inputs))} />
+          <Row label="Input guncelleme" value={formatDate(context?.inputsUpdatedAt)} />
+        </View>
+      </Card>
+    );
+  }
 
-      <SectionCard title="Tahmini Doluluk" subtitle="Girilen değerlerden hesaplanır">
-        <Row label="Aktif öğrenci (tahmini)" value={formatInt(aktif)} strong color={colors.primary} />
-        <Row label="Boş kontenjan" value={formatInt(kapasite - aktif)} />
-      </SectionCard>
-    </>
-  );
+  if (module.key === "kapasite") {
+    return (
+      <Card>
+        <Text style={styles.sectionTitle}>Okuma Ozeti</Text>
+        <View style={{ marginTop: spacing.sm }}>
+          <Row label="Mevcut ogrenci" value={formatInt(num(kapasite.currentStudents))} />
+          <Row label="Yil 1 kapasite" value={formatInt(num(years.y1))} />
+          <Row label="Yil 2 kapasite" value={formatInt(num(years.y2))} />
+          <Row label="Yil 3 kapasite" value={formatInt(num(years.y3))} />
+          <Row label="Kademe detayi" value={formatInt(countObjectKeys(kapasite.byKademe))} />
+        </View>
+      </Card>
+    );
+  }
+
+  if (module.key === "norm.ders_dagilimi") {
+    const normYears = asObject(asObject(norm).years);
+    return (
+      <Card>
+        <Text style={styles.sectionTitle}>Okuma Ozeti</Text>
+        {norm ? (
+          <View style={{ marginTop: spacing.sm }}>
+            <Row label="Yil 1 haftalik max" value={String(asObject(normYears.y1).teacherWeeklyMaxHours ?? "-")} />
+            <Row label="Yil 2 haftalik max" value={String(asObject(normYears.y2).teacherWeeklyMaxHours ?? "-")} />
+            <Row label="Yil 3 haftalik max" value={String(asObject(normYears.y3).teacherWeeklyMaxHours ?? "-")} />
+            <Row label="Ders saati tanimi" value={formatInt(countCurriculumEntries(norm))} />
+            <Row label="Norm guncelleme" value={formatDate(context?.normUpdatedAt)} />
+          </View>
+        ) : (
+          <Text style={styles.emptyText}>Norm konfigurasyonu bu kullanici icin okunamadi veya henuz yok.</Text>
+        )}
+      </Card>
+    );
+  }
+
+  if (module.key === "ik.local_staff") {
+    const ik = asObject(inputs?.ik);
+    return (
+      <Card>
+        <Text style={styles.sectionTitle}>Okuma Ozeti</Text>
+        <View style={{ marginTop: spacing.sm }}>
+          <Row label="Yerel kadro yillari" value={formatInt(countObjectKeys(ik.years))} />
+          <Row label="HQ kadro tanimi" value={formatInt(countObjectKeys(ik.hq))} />
+          <Row label="Varsayim seti" value={formatInt(countObjectKeys(ik.assumptions))} />
+        </View>
+      </Card>
+    );
+  }
+
+  if (module.key === "gelirler.unit_fee") {
+    return (
+      <Card>
+        <Text style={styles.sectionTitle}>Okuma Ozeti</Text>
+        <View style={{ marginTop: spacing.sm }}>
+          <Row label="Ogrenim ucreti satiri" value={formatInt(countTuitionRows(inputs))} />
+          <Row label="Egitim disi gelir" value={formatInt(countIncomeRows(inputs, "nonEducationFees"))} />
+          <Row label="Yurt geliri" value={formatInt(countIncomeRows(inputs, "dormitory"))} />
+          <Row label="Diger kurum geliri" value={formatInt(countIncomeRows(inputs, "otherInstitutionIncome"))} />
+          <Row label="Para birimi" value={currency} />
+        </View>
+      </Card>
+    );
+  }
+
+  if (module.key === "giderler.isletme") {
+    return (
+      <Card>
+        <Text style={styles.sectionTitle}>Okuma Ozeti</Text>
+        <View style={{ marginTop: spacing.sm }}>
+          <Row label="Isletme gider kalemi" value={formatInt(countExpenseItems(inputs, "isletme"))} />
+          <Row label="Ogrenim disi gider" value={formatInt(countExpenseItems(inputs, "ogrenimDisi"))} />
+          <Row label="Yurt gideri" value={formatInt(countExpenseItems(inputs, "yurt"))} />
+          <Row label="Para birimi" value={currency} />
+        </View>
+      </Card>
+    );
+  }
+
+  return null;
 }
 
-function IKTab({ value, currency, onChange }: CurrencyTabProps) {
-  const totalStaff =
-    Number(value.ogretmenSayisi || 0) +
-    Number(value.idariPersonel || 0) +
-    Number(value.destekPersonel || 0);
-  const monthlyCost = totalStaff * Number(value.ortalamaMaas || 0);
-  const yearlyCost = monthlyCost * 12;
-
-  return (
-    <>
-      <SectionCard title="Personel Sayıları" subtitle="Öğretmen ve idari kadro">
-        <NumberField
-          label="Öğretmen Sayısı"
-          value={value.ogretmenSayisi}
-          onChange={(n) => onChange({ ogretmenSayisi: n })}
-          unit="kişi"
-          testID="ik-ogretmen"
-        />
-        <NumberField
-          label="İdari Personel"
-          value={value.idariPersonel}
-          onChange={(n) => onChange({ idariPersonel: n })}
-          unit="kişi"
-          testID="ik-idari"
-        />
-        <NumberField
-          label="Destek Personel"
-          value={value.destekPersonel}
-          onChange={(n) => onChange({ destekPersonel: n })}
-          unit="kişi"
-          testID="ik-destek"
-        />
-      </SectionCard>
-
-      <SectionCard title="Maaş" subtitle="Ortalama ve yıllık artış">
-        <NumberField
-          label="Ortalama Aylık Maaş"
-          value={value.ortalamaMaas}
-          onChange={(n) => onChange({ ortalamaMaas: n })}
-          unit={currency}
-          testID="ik-maas"
-        />
-        <NumberField
-          label="Yıllık Maaş Artışı"
-          value={value.yillikArtis}
-          onChange={(n) => onChange({ yillikArtis: n })}
-          unit="%"
-          testID="ik-artis"
-        />
-      </SectionCard>
-
-      <SectionCard title="Toplam Maliyet" subtitle="Girdilerden otomatik hesaplanır">
-        <Row label="Toplam personel" value={formatInt(totalStaff) + " kişi"} />
-        <Row label="Aylık maaş yükü" value={formatMoney(monthlyCost, currency)} />
-        <Row label="Yıllık maaş yükü" value={formatMoney(yearlyCost, currency)} strong color={colors.primary} />
-      </SectionCard>
-    </>
-  );
-}
-
-function GelirlerTab({ value, currency, onChange }: CurrencyTabProps) {
-  return (
-    <>
-      <SectionCard title="Öğrenim Ücreti" subtitle="Öğrenci başına yıllık ücret">
-        <NumberField
-          label="Yıllık Öğrenim Ücreti"
-          value={value.yillikUcret}
-          onChange={(n) => onChange({ yillikUcret: n })}
-          unit={currency}
-          testID="gel-yillik"
-        />
-        <NumberField
-          label="Kayıt Ücreti"
-          value={value.kayitUcreti}
-          onChange={(n) => onChange({ kayitUcreti: n })}
-          unit={currency}
-          testID="gel-kayit"
-        />
-      </SectionCard>
-
-      <SectionCard title="İndirim & Ek Gelir">
-        <NumberField
-          label="Genel İndirim Oranı"
-          value={value.indirimOrani}
-          onChange={(n) => onChange({ indirimOrani: n })}
-          unit="%"
-          testID="gel-indirim"
-        />
-        <NumberField
-          label="Ek Gelirler (yıllık)"
-          value={value.ekGelirler}
-          onChange={(n) => onChange({ ekGelirler: n })}
-          unit={currency}
-          testID="gel-ek"
-        />
-      </SectionCard>
-    </>
-  );
-}
-
-function GiderlerTab({ value, currency, onChange }: CurrencyTabProps) {
-  const total =
-    Number(value.personel || 0) +
-    Number(value.kira || 0) +
-    Number(value.islektme || 0) +
-    Number(value.yatirim || 0) +
-    Number(value.digerGiderler || 0);
-  return (
-    <>
-      <SectionCard title="Faaliyet Giderleri" subtitle="Yıllık gider kalemleri">
-        <NumberField
-          label="Personel"
-          value={value.personel}
-          onChange={(n) => onChange({ personel: n })}
-          unit={currency}
-          testID="gid-personel"
-        />
-        <NumberField
-          label="Kira"
-          value={value.kira}
-          onChange={(n) => onChange({ kira: n })}
-          unit={currency}
-          testID="gid-kira"
-        />
-        <NumberField
-          label="İşletme Giderleri"
-          value={value.islektme}
-          onChange={(n) => onChange({ islektme: n })}
-          unit={currency}
-          testID="gid-isletme"
-        />
-        <NumberField
-          label="Yatırım Giderleri"
-          value={value.yatirim}
-          onChange={(n) => onChange({ yatirim: n })}
-          unit={currency}
-          testID="gid-yatirim"
-        />
-        <NumberField
-          label="Diğer Giderler"
-          value={value.digerGiderler}
-          onChange={(n) => onChange({ digerGiderler: n })}
-          unit={currency}
-          testID="gid-diger"
-        />
-      </SectionCard>
-
-      <SectionCard title="Toplam Gider">
-        <Row
-          label="Toplam yıllık gider"
-          value={formatMoney(total, currency)}
-          strong
-          color={colors.warn}
-        />
-      </SectionCard>
-    </>
-  );
-}
-
-function RaporTab({
+function ReportPanel({
   report,
   loading,
-  dirty,
   onReload,
+  currency,
 }: {
   report: Report | null;
   loading: boolean;
-  dirty: boolean;
   onReload: () => void;
+  currency: string;
 }) {
   if (loading) {
     return (
       <Card>
-        <View style={{ padding: spacing.lg, alignItems: "center" }}>
+        <View style={styles.centerPad}>
           <ActivityIndicator color={colors.primary} />
-          <Text style={{ color: colors.textDim, marginTop: 10 }}>Rapor hesaplanıyor...</Text>
+          <Text style={styles.emptyText}>Rapor yukleniyor...</Text>
         </View>
       </Card>
     );
   }
-  if (!report || report.disabledMessage) {
+
+  if (!report) {
     return (
       <Card>
-        <View style={{ padding: spacing.lg, alignItems: "center", gap: spacing.sm }}>
-          <Ionicons name="document-text-outline" size={28} color={colors.textDim} />
-          <Text style={{ color: colors.text, ...font.h3, textAlign: "center" }}>Rapor özeti hazır değil</Text>
-          <Text style={{ color: colors.textDim, ...font.small, textAlign: "center" }}>
-            {report?.disabledMessage || "Rapor yüklenemedi veya backend henüz özet veri döndürmedi."}
-          </Text>
-          <Button
-            label="Yenile"
-            icon="refresh"
-            variant="secondary"
-            small
-            onPress={onReload}
-            testID="rapor-retry"
-          />
+        <View style={styles.centerPad}>
+          <Ionicons name="pie-chart-outline" size={30} color={colors.textDim} />
+          <Text style={styles.sectionTitle}>Rapor Durumu</Text>
+          <Text style={styles.emptyText}>Rapor ozeti henuz yuklenmedi.</Text>
+          <Button label="Raporu Yukle" icon="refresh-outline" variant="secondary" onPress={onReload} />
         </View>
       </Card>
     );
   }
-  const cur = report.currency || "TRY";
-  const k = report.kpis;
+
+  if (report.disabledMessage) {
+    return (
+      <Card>
+        <View style={styles.centerPad}>
+          <Ionicons name="alert-circle-outline" size={30} color={colors.warn} />
+          <Text style={styles.sectionTitle}>Rapor Kullanilamiyor</Text>
+          <Text style={styles.emptyText}>{report.disabledMessage}</Text>
+          <Button label="Tekrar Dene" icon="refresh-outline" variant="secondary" onPress={onReload} />
+        </View>
+      </Card>
+    );
+  }
+
+  const cur = report.currency || currency;
+  const kpis = report.kpis || {};
   return (
     <>
-      {dirty ? (
-        <View style={styles.dirtyBanner} testID="rapor-dirty-banner">
-          <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
-          <Text style={styles.dirtyText}>Kaydedilmemiş değişiklikler var. Rapor son kayıtlı verilere göredir.</Text>
-          <Pressable onPress={onReload} testID="rapor-refresh">
-            <Ionicons name="refresh" size={18} color={colors.primary} />
-          </Pressable>
+      <Card>
+        <Text style={styles.sectionTitle}>Rapor Ozeti</Text>
+        <Text style={styles.sectionSub}>
+          {report.cached ? "Cache sonucu" : "Guncel sonuc"} · {formatDate(report.calculatedAt)}
+        </Text>
+        <View style={{ marginTop: spacing.sm }}>
+          <Row label="Toplam gelir" value={formatMoney(num(kpis.toplamGelir), cur)} />
+          <Row label="Toplam gider" value={formatMoney(num(kpis.toplamGider), cur)} />
+          <Row label="Faaliyet kari" value={formatMoney(num(kpis.faaliyetKari), cur)} />
+          <Row label="Kar marji" value={formatPct(num(kpis.karMarji))} />
         </View>
-      ) : null}
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.md }}>
-        <Kpi title="Toplam Gelir" value={formatMoney(k.toplamGelir, cur)} tint={colors.success} />
-        <Kpi title="Toplam Gider" value={formatMoney(k.toplamGider, cur)} tint={colors.warn} />
-        <Kpi
-          title="Faaliyet Karı"
-          value={formatMoney(k.faaliyetKari, cur)}
-          tint={k.faaliyetKari >= 0 ? colors.success : colors.danger}
-        />
-        <Kpi title="Kâr Marjı" value={formatPct(k.karMarji)} tint={colors.primary} />
-      </View>
-
-      <SectionCard title="Kapasite Kullanımı">
-        <Row label="Aktif Öğrenci" value={formatInt(k.aktifOgrenci)} strong />
-        <Row label="Toplam Kapasite" value={formatInt(k.toplamKapasite)} />
-        <Row label="Doluluk" value={formatPct(k.doluluk)} color={colors.primary} />
-      </SectionCard>
-
-      <SectionCard title="Öğrenci Başına">
-        <Row label="Gelir" value={formatMoney(k.ogrenciBasinaGelir, cur)} strong color={colors.success} />
-        <Row label="Gider" value={formatMoney(k.ogrenciBasinaGider, cur)} strong color={colors.warn} />
-        <Row
-          label="Marj"
-          value={formatMoney(k.ogrenciBasinaGelir - k.ogrenciBasinaGider, cur)}
-          strong
-          color={colors.primary}
-        />
-      </SectionCard>
-
-      <SectionCard title="Gelir Dağılımı">
-        <StackedBars items={report.gelirDagilim} currency={cur} tint={colors.success} />
-      </SectionCard>
-
-      <SectionCard title="Gider Dağılımı">
-        <StackedBars items={report.giderDagilim} currency={cur} tint={colors.warn} />
-      </SectionCard>
+      </Card>
+      <Card>
+        <Text style={styles.sectionTitle}>Rapor Notu</Text>
+        <Text style={styles.emptyText}>
+          Detayli tablo, export ve dagitilmis rapor akislari PR 07 ve PR 08 kapsaminda port edilecek.
+        </Text>
+      </Card>
     </>
   );
 }
 
-function Kpi({ title, value, tint }: { title: string; value: string; tint: string }) {
+function DetailedReportPanel() {
   return (
-    <View style={[styles.kpi, { borderColor: colors.border }]}>
-      <View style={[styles.kpiBar, { backgroundColor: tint }]} />
-      <Text style={styles.kpiTitle}>{title}</Text>
-      <Text style={styles.kpiValue}>{value}</Text>
-    </View>
-  );
-}
-
-function StackedBars({
-  items,
-  currency,
-  tint,
-}: {
-  items: { label: string; value: number }[];
-  currency: string;
-  tint: string;
-}) {
-  const total = items.reduce((a, b) => a + Math.max(0, b.value), 0) || 1;
-  return (
-    <View style={{ gap: spacing.sm }}>
-      {items.map((it) => {
-        const pct = Math.max(0, it.value) / total;
-        return (
-          <View key={it.label} style={{ gap: 6 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ color: colors.text, ...font.small }}>{it.label}</Text>
-              <Text style={{ color: colors.textDim, ...font.small }}>
-                {formatMoney(it.value, currency)} · {formatPct(pct * 100)}
-              </Text>
-            </View>
-            <View style={{ height: 8, backgroundColor: colors.bgElev2, borderRadius: 999, overflow: "hidden" }}>
-              <View style={{ width: `${pct * 100}%`, height: "100%", backgroundColor: tint, borderRadius: 999 }} />
-            </View>
-          </View>
-        );
-      })}
-    </View>
+    <Card testID="detailed-report-readonly">
+      <View style={styles.centerPad}>
+        <Ionicons name="document-outline" size={30} color={colors.textDim} />
+        <Text style={styles.sectionTitle}>Detayli Rapor</Text>
+        <Text style={styles.emptyText}>
+          Bu sekme PR 03A'da yalnizca rota ve durum yeri olarak acildi. Detayli rapor tablolari PR 07'de port edilecek.
+        </Text>
+      </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  centerPad: { padding: spacing.lg, alignItems: "center", gap: spacing.sm },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -750,74 +1132,152 @@ const styles = StyleSheet.create({
   },
   headerLabel: { color: colors.textMuted, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
   headerTitle: { color: colors.text, ...font.h3, marginTop: 2 },
+  headerSub: { color: colors.textDim, ...font.small, marginTop: 2 },
+  statusBadge: {
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    maxWidth: 130,
+  },
+  statusText: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.3 },
+  errorWrap: { padding: spacing.lg },
+  errorText: { color: colors.danger, ...font.body },
+  summaryWrap: { padding: spacing.lg, paddingBottom: spacing.md },
+  summaryHead: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  sectionTitle: { color: colors.text, ...font.h3 },
+  sectionSub: { color: colors.textDim, ...font.small, marginTop: 4 },
+  progressLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
+  },
+  progressText: { color: colors.textDim, ...font.small },
+  noticeBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#F9731644",
+    backgroundColor: "#F9731614",
+  },
+  noticeText: { color: colors.textDim, ...font.small, flex: 1 },
+  missingLine: {
+    color: colors.textDim,
+    ...font.small,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElev2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tinyLabel: { color: colors.textDim, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: radius.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "#F9731655",
+    backgroundColor: "#F9731614",
+  },
+  lockBadgeText: { color: colors.warn, ...font.tiny, letterSpacing: 0 },
   tabRow: {
     height: 56,
     justifyContent: "center",
+    borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderColor: colors.border,
+  },
+  tabContent: { paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" },
+  body: { padding: spacing.lg, gap: spacing.md },
+  moduleTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  moduleIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: "#F5B30122",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workStatePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElev2,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  workStateText: { ...font.tiny, letterSpacing: 0 },
+  writePill: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: "#22C55E55",
+    backgroundColor: "#22C55E18",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  writePillText: { color: colors.success, ...font.tiny, letterSpacing: 0 },
+  commentBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElev2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  commentText: { color: colors.textDim, ...font.small, flex: 1 },
+  emptyText: { color: colors.textDim, ...font.small, textAlign: "center", lineHeight: 20 },
+  stickyFooter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
     backgroundColor: colors.bg,
   },
-  errBox: {
+  footerTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
-    borderWidth: 1,
-    padding: 10,
-    borderRadius: radius.md,
+    gap: spacing.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
-  readOnlyBox: {
+  footerActions: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#F9731622",
-    borderColor: "#F9731655",
-    borderWidth: 1,
-    padding: 10,
-    borderRadius: radius.md,
+    flexWrap: "wrap",
+    gap: spacing.sm,
   },
-  readOnlyText: { color: "#FDBA74", ...font.small, flex: 1 },
-  sectionTitle: { color: colors.text, ...font.h3 },
-  sectionSub: { color: colors.textDim, ...font.small, marginTop: 4 },
-  tinyLabel: { color: colors.textDim, ...font.small, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
-  toast: {
-    position: "absolute",
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.bgElev,
-    borderColor: colors.borderStrong,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  toastText: { color: colors.text, ...font.bodyMd },
-  kpi: {
-    width: "48%",
+  footerActionButton: {
     flexGrow: 1,
-    minWidth: 150,
-    backgroundColor: colors.bgElev,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.md,
-    overflow: "hidden",
+    minWidth: 112,
   },
-  kpiBar: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
-  kpiTitle: { color: colors.textDim, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6, marginTop: 4 },
-  kpiValue: { color: colors.text, ...font.h3, marginTop: 6, ...font.mono },
-  dirtyBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#F9731622",
-    borderColor: "#F9731655",
+  footerTitle: { color: colors.text, ...font.bodyMd },
+  footerSub: { color: colors.textDim, ...font.tiny, marginTop: 2, letterSpacing: 0 },
+  revisionInput: {
+    minHeight: 44,
+    maxHeight: 80,
     borderWidth: 1,
-    padding: 12,
+    borderColor: colors.border,
     borderRadius: radius.md,
+    backgroundColor: colors.bgElev2,
+    color: colors.text,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    ...font.small,
   },
-  dirtyText: { color: "#FDBA74", ...font.small, flex: 1 },
 });

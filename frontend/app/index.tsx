@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/auth/AuthContext";
+import { getHomeRoute } from "@/src/auth/routes";
 import { colors } from "@/src/theme";
 
 export default function Index() {
@@ -12,9 +13,9 @@ export default function Index() {
 
   useEffect(() => {
     if (bootstrapping) return;
-    if (token) router.replace(user?.must_reset_password ? "/profile" : "/schools");
+    if (token) router.replace(getHomeRoute(user));
     else router.replace("/login");
-  }, [bootstrapping, token, user?.must_reset_password, router]);
+  }, [bootstrapping, token, user, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>

@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 
 import { api, PermissionEntry, School } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
+import { getHomeRoute } from "@/src/auth/routes";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Input, Row } from "@/src/ui/components";
 
@@ -150,7 +151,7 @@ export default function ProfileScreen() {
       setConfirmPassword("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStatus({ type: "success", message: "Parola güncellendi." });
-      if (wasForced) router.replace("/schools");
+      if (wasForced) router.replace(getHomeRoute(user ? { ...user, must_reset_password: false } : null));
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setStatus({ type: "error", message: e?.message || "Parola güncellenemedi." });

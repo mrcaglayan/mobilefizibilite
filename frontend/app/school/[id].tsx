@@ -148,8 +148,9 @@ function currencyLabel(scenario: Scenario) {
   return "USD";
 }
 
-function scenarioProgressValue(scenario: Scenario) {
-  const pct = Number(scenario.progress_pct ?? 0);
+function scenarioProgressValue(scenario: Scenario, progressByScenarioId: Record<string, number | null>) {
+  const livePct = progressByScenarioId[String(scenario.id)];
+  const pct = Number(livePct ?? scenario.progress_pct ?? 0);
   return Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
 }
 
@@ -160,6 +161,8 @@ export default function SchoolScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [school, setSchool] = useState<School | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [progressByScenarioId, setProgressByScenarioId] = useState<Record<string, number | null>>({});
+  const [progressWarning, setProgressWarning] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState("");
@@ -196,7 +199,41 @@ export default function SchoolScreen() {
         api.listScenarios(id, { fields: "all", order: "academic_year:desc" }),
       ]);
       setSchool(schoolResult);
-      setScenarios(scenarioResult.items);
+      const scenarioItems = scenarioResult.items;
+      setScenarios(scenarioItems);
+
+      const progressTargets = scenarioItems.slice(0, 50);
+      if (!progressTargets.length) {
+        setProgressByScenarioId({});
+        setProgressWarning("");
+        return;
+      }
+
+      const progressResults = await Promise.allSettled(
+        progressTargets.map(async (scenario) => {
+          const snapshot = await api.getScenarioProgress(id, scenario.id);
+          const progress = snapshot.progress && typeof snapshot.progress === "object"
+            ? (snapshot.progress as Record<string, unknown>)
+            : {};
+          const pct = Number(progress.pct ?? scenario.progress_pct ?? 0);
+          return [String(scenario.id), Number.isFinite(pct) ? pct : null] as const;
+        }),
+      );
+      const nextProgress: Record<string, number | null> = {};
+      progressResults.forEach((result, index) => {
+        const fallbackId = String(progressTargets[index]?.id || "");
+        if (result.status === "fulfilled") {
+          nextProgress[result.value[0]] = result.value[1];
+        } else if (fallbackId) {
+          nextProgress[fallbackId] = null;
+        }
+      });
+      setProgressByScenarioId(nextProgress);
+      setProgressWarning(
+        scenarioItems.length > progressTargets.length
+          ? `Ilk ${progressTargets.length} senaryo icin ilerleme gosteriliyor.`
+          : "",
+      );
     } catch (e: any) {
       setErr(e?.message || "Yuklenemedi");
     } finally {
@@ -381,6 +418,12 @@ export default function SchoolScreen() {
                   <Text style={styles.closedNoticeText}>Okul kapali. Yeni senaryo yetkisi sinirli olabilir.</Text>
                 </View>
               ) : null}
+              {progressWarning ? (
+                <View style={styles.closedNotice}>
+                  <Ionicons name="information-circle-outline" size={15} color={colors.warn} />
+                  <Text style={styles.closedNoticeText}>{progressWarning}</Text>
+                </View>
+              ) : null}
             </View>
           }
           refreshControl={
@@ -409,7 +452,7 @@ export default function SchoolScreen() {
             const locked = isScenarioLocked(item);
             const canEditItem = canEditScenario && !locked;
             const canDeleteItem = canDeleteScenario && !locked;
-            const progress = scenarioProgressValue(item);
+            const progress = scenarioProgressValue(item, progressByScenarioId);
             return (
               <Pressable
                 testID={`scenario-card-${item.id}`}

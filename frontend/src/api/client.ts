@@ -485,6 +485,22 @@ export type WorkItem = {
   manager_comment?: string | null;
 };
 
+export type WorkItemsResponse = {
+  workItems: WorkItem[];
+  requiredWorkIds: string[];
+};
+
+export type WorkItemActionResponse = {
+  workItem: WorkItem | null;
+  scenario?: Scenario | null;
+};
+
+export type SendForApprovalResponse = {
+  ok?: true;
+  scenario?: Scenario | null;
+  reasons?: string[];
+};
+
 export type Report = {
   currency: string;
   kpis: Record<string, number>;
@@ -731,22 +747,39 @@ export const api = {
       method: "PUT",
       body: payload,
     }),
-  listWorkItems: (schoolId: Id, scenarioId: Id) =>
-    request<WorkItem[]>(`/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/work-items`, {
-      noCache: true,
-    }),
+  listWorkItems: async (schoolId: Id, scenarioId: Id) => {
+    const payload = await request<WorkItemsResponse | WorkItem[]>(
+      `/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/work-items`,
+      {
+        noCache: true,
+      },
+    );
+    if (Array.isArray(payload)) return { workItems: payload, requiredWorkIds: [] };
+    return {
+      workItems: Array.isArray(payload?.workItems) ? payload.workItems : [],
+      requiredWorkIds: Array.isArray(payload?.requiredWorkIds)
+        ? payload.requiredWorkIds.map((workId) => String(workId))
+        : [],
+    };
+  },
   submitWorkItem: (schoolId: Id, scenarioId: Id, workId: string, body?: unknown) =>
-    request<WorkItem>(`/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/work-items/${id(workId)}/submit`, {
-      method: "POST",
-      body,
-    }),
+    request<WorkItemActionResponse>(
+      `/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/work-items/${id(workId)}/submit`,
+      {
+        method: "POST",
+        body,
+      },
+    ),
   reviewWorkItem: (schoolId: Id, scenarioId: Id, workId: string, body: unknown) =>
-    request<WorkItem>(`/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/work-items/${id(workId)}/review`, {
-      method: "POST",
-      body,
-    }),
+    request<WorkItemActionResponse>(
+      `/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/work-items/${id(workId)}/review`,
+      {
+        method: "POST",
+        body,
+      },
+    ),
   sendForApproval: (schoolId: Id, scenarioId: Id) =>
-    request<{ ok: true }>(`/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/send-for-approval`, {
+    request<SendForApprovalResponse>(`/schools/${id(schoolId)}/scenarios/${id(scenarioId)}/send-for-approval`, {
       method: "POST",
     }),
 
