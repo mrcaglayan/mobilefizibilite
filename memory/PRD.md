@@ -49,7 +49,41 @@ See `/app/memory/test_credentials.md`.
 ## Test status
 Backend: 12/12 pytest passed. Frontend: full E2E flow (login → schools → scenarios → editor → save → report → logout) verified.
 
-## Iteration 3 — Countries + Approvals shipped
+## Iteration 4 — Manager Users Management
+
+### Schools screen
+- For `role === "manager"` users the CTA area shows a single **Kullanıcılar** tile that goes to `/manager/users` and displays their country in the subtitle.
+
+### Müdür Kullanıcı Yönetimi — `/manager/users`
+- Country-scoped list (manager sees only their own country's users)
+- Search by name/email + role filter chips (Tümü / Okul Müdürü / İK / Kullanıcı)
+- Admins and other managers in the same country appear as **read-only rows with a lock icon** (cannot be edited via manager endpoints)
+- "Ekle" bottom sheet: name, email, temp password + role chips restricted to **Okul Müdürü / İK** (server enforces same). 400 on any other role.
+
+### Müdür Kullanıcı Detay — `/manager/user/[id]`
+- Profile card + kullanıcı ID + ülke rows
+- **Rol** kartı: 3 chip'e restricted (Okul Müdürü / İK / Kullanıcı) — server enforces
+- **E-posta** kartı: inline edit with dirty-state save button; duplicate 409 in Turkish
+- **Parola** kartı: reset generates 12-char password shown in modal with copy-to-clipboard
+- **No delete** (matches original web behavior)
+
+### API surface added
+- `GET /api/manager/users` (country-scoped)
+- `POST /api/manager/users` (principal/hr only)
+- `PATCH /api/manager/users/:id/role`
+- `PATCH /api/manager/users/:id/email`
+- `POST /api/manager/users/:id/reset-password`
+- All above require `role === "manager"` or `"admin"` and enforce country scoping (403 cross-country)
+
+### Verification
+- **curl**: list, create-principal-200, create-admin-role-400, patch role, patch email, reset-password, non-manager-403 — all pass
+- **screenshots**: 8 flows (login as manager → schools with tile → users list showing lock icons on peers → filter to principals → create-user sheet filled → user detail → role change with toast → email update → temp password modal)
+
+### On phone
+`EXPO_PUBLIC_BACKEND_URL` restored to `http://tmffinance.com`. Manager users management uses your real `/api/manager/*` routes on device.
+
+---
+
 
 ### Schools screen refactor
 - Replaced single "Kullanıcı Yönetimi" CTA with a **3-tile grid** for admin users: **Kullanıcılar**, **Ülkeler**, **Onaylar**.

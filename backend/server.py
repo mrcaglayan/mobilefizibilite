@@ -102,6 +102,42 @@ USERS: Dict[str, Dict[str, Any]] = {
         "must_reset_password": False,
         "permissions": ["*"],
     },
+    "u_mgr_tr": {
+        "id": "u_mgr_tr",
+        "email": "manager@feasibility.io",
+        "password": "manager1234",
+        "full_name": "Zeynep Kaya",
+        "role": "manager",
+        "country_id": 1,
+        "country_name": "Türkiye",
+        "country_code": "TR",
+        "must_reset_password": False,
+        "permissions": ["page.manage_permissions:write", "user.create:write"],
+    },
+    "u_prin_1": {
+        "id": "u_prin_1",
+        "email": "ahmet.demir@tmf.com",
+        "password": "principal1",
+        "full_name": "Ahmet Demir",
+        "role": "principal",
+        "country_id": 1,
+        "country_name": "Türkiye",
+        "country_code": "TR",
+        "must_reset_password": False,
+        "permissions": [],
+    },
+    "u_hr_1": {
+        "id": "u_hr_1",
+        "email": "ayse.yilmaz@tmf.com",
+        "password": "hr12345",
+        "full_name": "Ayşe Yılmaz",
+        "role": "hr",
+        "country_id": 1,
+        "country_name": "Türkiye",
+        "country_code": "TR",
+        "must_reset_password": True,
+        "permissions": [],
+    },
 }
 
 
@@ -942,6 +978,142 @@ async def admin_review_batch(batch_id: str, body: ReviewBody, user=Depends(get_c
         b["reviewed_at"] = _now()
         b["review_note"] = body.note
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Manager: users (scoped to caller's country)
+# ---------------------------------------------------------------------------
+def _require_manager(user: Dict[str, Any]):
+    if user.get("role") not in ("manager", "admin"):
+        raise HTTPException(status_code=403, detail="Yönetici yetkisi gerekiyor")
+    if not user.get("country_id"):
+        raise HTTPException(status_code=400, detail="Müdüre ülke atanmalıdır")
+
+
+def _in_country(target: Dict[str, Any], user: Dict[str, Any]) -> bool:
+    # Admins bypass country scope; managers restricted to own country.
+    if user.get("role") == "admin":
+        return True
+    return int(target.get("country_id") or 0) == int(user.get("country_id") or 0)
+
+
+@api.get("/manager/users")
+async def manager_list_users(user=Depends(get_current_user)):
+    _require_manager(user)
+    cid = int(user["country_id"])
+    users = []
+    for u in USERS.values():
+        if int(u.get("country_id") or 0) != cid:
+            continue
+        users.append({k: v for k, v in u.items() if k != "password"})
+    users.sort(key=lambda x: (x.get("full_name") or x.get("email") or "").lower())
+    return {"users": users, "total": len(users)}
+
+
+class ManagerCreateUserBody(BaseModel):
+    full_name: Optional[str] = None
+    email: str
+    password: str
+    role: str
+
+
+@api.post("/manager/users")
+async def manager_create_user(body: ManagerCreateUserBody, user=Depends(get_current_user)):
+    _require_manager(user)
+    global _admin_user_counter
+    if body.role not in ("principal", "hr"):
+        raise HTTPException(status_code=400, detail="Invalid role (principal or hr only)")
+    if not body.email.strip() or not body.password:
+        raise HTTPException(status_code=400, detail="email and password are required")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    for u in USERS.values():
+        if u["email"].lower() == body.email.lower():
+            raise HTTPException(status_code=409, detail="Email already registered")
+    country = next((c for c in COUNTRIES if c["id"] == user["country_id"]), None)
+    if not country:
+        raise HTTPException(status_code=400, detail="Country not found")
+    _admin_user_counter += 1
+    uid = f"u_{_admin_user_counter}"
+    new_user = {
+        "id": uid,
+        "full_name": body.full_name or None,
+        "email": body.email.strip(),
+        "password": body.password,
+        "role": body.role,
+        "country_id": country["id"],
+        "country_name": country["name"],
+        "country_code": country["code"],
+        "region": country.get("region"),
+        "must_reset_password": True,
+        "permissions": [],
+    }
+    USERS[uid] = new_user
+    return {k: v for k, v in new_user.items() if k != "password"}
+
+
+@api.patch("/manager/users/{user_id}/role")
+async def manager_update_role(user_id: str, body: UserRoleBody, user=Depends(get_current_user)):
+    _require_manager(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    target = USERS[user_id]
+    if not _in_country(target, user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if body.role not in ("user", "hr", "principal"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    target["role"] = body.role
+    return {"id": user_id, "role": body.role}
+
+
+class ManagerEmailBody(BaseModel):
+    email: str
+
+
+@api.patch("/manager/users/{user_id}/email")
+async def manager_update_email(user_id: str, body: ManagerEmailBody, user=Depends(get_current_user)):
+    _require_manager(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    target = USERS[user_id]
+    if not _in_country(target, user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    email = body.email.strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+    for uid, u in USERS.items():
+        if uid != user_id and u["email"].lower() == email.lower():
+            raise HTTPException(status_code=409, detail="Email already registered")
+    target["email"] = email
+    return {"id": user_id, "email": email}
+
+
+@api.post("/manager/users/{user_id}/reset-password")
+async def manager_reset_password(
+    user_id: str, body: ResetPasswordBody, user=Depends(get_current_user),
+):
+    _require_manager(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    target = USERS[user_id]
+    if not _in_country(target, user):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    import secrets
+    import string
+    pw = body.password if body.password else "".join(
+        secrets.choice(string.ascii_letters + string.digits) for _ in range(12)
+    )
+    if len(pw) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    target["password"] = pw
+    target["must_reset_password"] = True
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "email": target["email"],
+        "temporary_password": pw,
+        "must_reset_password": True,
+    }
 
 
 @api.get("/schools/{school_id}/scenarios/{scenario_id}/report")

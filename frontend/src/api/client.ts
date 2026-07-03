@@ -328,4 +328,23 @@ export const api = {
       revisionWorkIds?: string[];
     },
   ) => request<{ ok: true }>(`/admin/approval-batches/${batchId}/review`, { method: "PATCH", body }),
+
+  // ---- Manager: users (scoped to caller's country) ----
+  managerListUsers: () =>
+    request<{ users: AdminUser[]; total: number } | AdminUser[]>("/manager/users"),
+  managerCreateUser: (payload: {
+    full_name?: string;
+    email: string;
+    password: string;
+    role: "principal" | "hr";
+  }) => request<AdminUser>("/manager/users", { method: "POST", body: payload }),
+  managerUpdateUserRole: (userId: number | string, role: string) =>
+    request<AdminUser>(`/manager/users/${userId}/role`, { method: "PATCH", body: { role } }),
+  managerUpdateUserEmail: (userId: number | string, email: string) =>
+    request<AdminUser>(`/manager/users/${userId}/email`, { method: "PATCH", body: { email } }),
+  managerResetUserPassword: (userId: number | string, password?: string) =>
+    request<{ ok: true; user_id: number; email: string; temporary_password: string }>(
+      `/manager/users/${userId}/reset-password`,
+      { method: "POST", body: password ? { password } : {} },
+    ),
 };

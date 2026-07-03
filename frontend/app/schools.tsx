@@ -132,6 +132,16 @@ export default function SchoolsScreen() {
               testID="schools-admin-approvals-link"
             />
           </View>
+        ) : user?.role === "manager" ? (
+          <View style={styles.adminGrid}>
+            <AdminTile
+              icon="people-outline"
+              title="Kullanıcılar"
+              subtitle={`${user?.country_name || "Ülke"} müdür/İK`}
+              onPress={() => router.push("/manager/users")}
+              testID="schools-manager-users-link"
+            />
+          </View>
         ) : null}
       </View>
 
