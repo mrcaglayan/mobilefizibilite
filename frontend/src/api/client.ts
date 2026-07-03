@@ -138,6 +138,25 @@ export type Report = {
   giderDagilim: { label: string; value: number }[];
 };
 
+export type AdminUser = {
+  id: number | string;
+  full_name?: string | null;
+  email: string;
+  role: string;
+  country_id?: number | null;
+  country_name?: string | null;
+  country_code?: string | null;
+  region?: string | null;
+  must_reset_password?: boolean;
+};
+
+export type Country = {
+  id: number;
+  name: string;
+  code: string;
+  region?: string | null;
+};
+
 export const api = {
   login: (email: string, password: string) =>
     request<LoginResponse>("/auth/login", { method: "POST", body: { email, password } }),
@@ -162,4 +181,40 @@ export const api = {
       `/schools/${schoolId}/scenarios/${scenarioId}/calculate`,
       { method: "POST" },
     ),
+
+  // ---- Admin: users ----
+  adminListUsers: (opts: { limit?: number; offset?: number; unassigned?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.limit != null) qs.set("limit", String(opts.limit));
+    if (opts.offset != null) qs.set("offset", String(opts.offset));
+    if (opts.unassigned) qs.set("unassigned", "1");
+    const s = qs.toString();
+    return request<{ users: AdminUser[]; total: number } | AdminUser[]>(
+      `/admin/users${s ? `?${s}` : ""}`,
+    );
+  },
+  adminCreateUser: (payload: {
+    full_name?: string;
+    email: string;
+    password: string;
+    role: string;
+    country_id?: number | null;
+    country_code?: string | null;
+  }) => request<AdminUser>("/admin/users", { method: "POST", body: payload }),
+  adminUpdateUserRole: (userId: number | string, role: string) =>
+    request<AdminUser>(`/admin/users/${userId}/role`, { method: "PATCH", body: { role } }),
+  adminAssignUserCountry: (
+    userId: number | string,
+    payload: { country_id?: number; country_code?: string },
+  ) => request<AdminUser>(`/admin/users/${userId}/country`, { method: "PATCH", body: payload }),
+  adminResetUserPassword: (userId: number | string, password?: string) =>
+    request<{ ok: true; user_id: number; email: string; temporary_password: string }>(
+      `/admin/users/${userId}/reset-password`,
+      { method: "POST", body: password ? { password } : {} },
+    ),
+  adminDeleteUser: (userId: number | string) =>
+    request<{ ok: true }>(`/admin/users/${userId}`, { method: "DELETE" }),
+
+  // ---- Admin: countries (for pickers) ----
+  adminListCountries: () => request<Country[] | { countries: Country[]; items?: Country[] }>("/admin/countries"),
 };

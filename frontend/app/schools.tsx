@@ -75,6 +75,23 @@ export default function SchoolsScreen() {
           {user?.role === "admin" ? "Yönetici" : user?.role === "manager" ? "Müdür" : "Kullanıcı"}
           {user?.country_name ? ` · ${user.country_name}` : ""}
         </Text>
+
+        {user?.role === "admin" ? (
+          <Pressable
+            testID="schools-admin-users-link"
+            onPress={() => router.push("/admin/users")}
+            style={({ pressed }) => [styles.adminCta, { opacity: pressed ? 0.85 : 1 }]}
+          >
+            <View style={styles.adminIcon}>
+              <Ionicons name="people-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.adminTitle}>Kullanıcı Yönetimi</Text>
+              <Text style={styles.adminSub}>Kullanıcı ekle, rol ata, parola sıfırla</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Section title */}
@@ -176,6 +193,27 @@ const styles = StyleSheet.create({
   hello: { color: colors.textDim, ...font.small, textTransform: "uppercase", letterSpacing: 0.6 },
   userLine: { color: colors.text, ...font.h2, marginTop: 2 },
   roleLine: { color: colors.textDim, ...font.small, marginTop: 4 },
+  adminCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.bgElev,
+    borderWidth: 1,
+    borderColor: colors.primaryDark,
+  },
+  adminIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: "#F5B30122",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminTitle: { ...font.bodyMd, color: colors.text, fontSize: 15 },
+  adminSub: { color: colors.textDim, ...font.small, marginTop: 2 },
   sectionHead: { paddingHorizontal: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.md },
   sectionTitle: { color: colors.text, ...font.h3 },
   sectionSub: { color: colors.textDim, ...font.small, marginTop: 2 },

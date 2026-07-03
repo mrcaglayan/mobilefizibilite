@@ -48,3 +48,15 @@ See `/app/memory/test_credentials.md`.
 
 ## Test status
 Backend: 12/12 pytest passed. Frontend: full E2E flow (login → schools → scenarios → editor → save → report → logout) verified.
+
+## Iteration 2 — Admin Users + real backend wired
+
+- `EXPO_PUBLIC_BACKEND_URL` now points to **http://tmffinance.com** (user's real Node.js/MySQL backend). Their `/api/*` routes match the mobile client's expectations.
+- iOS `NSAppTransportSecurity` + Android `usesCleartextTraffic` exceptions added in `app.json` for `tmffinance.com` (their API is HTTP not HTTPS — required for native builds).
+- Admin CTA "Kullanıcı Yönetimi" appears on the schools screen for `role === "admin"` users.
+- **`/admin/users`** screen: list with search, role filter chips (Yönetici/Müdür/Muhasebeci/Okul Müdürü/İK/Kullanıcı), avatar, role + country tags, "parola sıfırlama gerekli" indicator, pull-to-refresh, "Ekle" bottom-sheet (name/email/temp password/role/country).
+- **`/admin/user/[id]`** screen: profile card, change role (6 roles), assign country, reset password (temp password modal + copy to clipboard), delete user with confirm modal, self-delete blocked.
+- Demo FastAPI backend was extended with matching `/api/admin/users*` + `/api/admin/countries` routes (in-memory) so preview still works without user's backend.
+
+### Known constraint for web preview only
+tmffinance.com CORS is `Access-Control-Allow-Origin: http://localhost:3000` — the browser web-preview URL is different, so the web preview will get CORS blocked when pointed at the real backend. Native iOS/Android builds don't have CORS and will work fine. To also enable web-preview against real backend, ask the site operator to add the preview origin (or `*`) to CORS.

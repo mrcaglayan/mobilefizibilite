@@ -377,6 +377,163 @@ async def calculate(school_id: str, scenario_id: str, user=Depends(get_current_u
     return {"ok": True, "report": _compute_report(inputs)}
 
 
+# ---------------------------------------------------------------------------
+# Admin: users + countries (mirror of Node.js /api/admin/*)
+# ---------------------------------------------------------------------------
+COUNTRIES: List[Dict[str, Any]] = [
+    {"id": 1, "name": "Türkiye", "code": "TR", "region": "EMEA"},
+    {"id": 2, "name": "Azerbaycan", "code": "AZ", "region": "EMEA"},
+    {"id": 3, "name": "Kazakistan", "code": "KZ", "region": "APAC"},
+]
+
+_admin_user_counter = 100
+
+
+def _require_admin(user: Dict[str, Any]):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Yönetici yetkisi gerekiyor")
+
+
+@api.get("/admin/users")
+async def admin_list_users(unassigned: Optional[str] = None, user=Depends(get_current_user)):
+    _require_admin(user)
+    users = []
+    for u in USERS.values():
+        if unassigned == "1" and u.get("country_id"):
+            continue
+        users.append({k: v for k, v in u.items() if k != "password"})
+    return {"users": users, "total": len(users)}
+
+
+class CreateUserBody(BaseModel):
+    full_name: Optional[str] = None
+    email: str
+    password: str
+    role: str = "user"
+    country_id: Optional[int] = None
+    country_code: Optional[str] = None
+
+
+@api.post("/admin/users")
+async def admin_create_user(body: CreateUserBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    global _admin_user_counter
+    valid_roles = ["admin", "user", "principal", "hr", "manager", "accountant"]
+    if body.role not in valid_roles:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    for u in USERS.values():
+        if u["email"].lower() == body.email.lower():
+            raise HTTPException(status_code=409, detail="Email already registered")
+    country = None
+    if body.country_id is not None:
+        country = next((c for c in COUNTRIES if c["id"] == body.country_id), None)
+    elif body.country_code:
+        country = next((c for c in COUNTRIES if c["code"].upper() == body.country_code.upper()), None)
+    _admin_user_counter += 1
+    uid = f"u_{_admin_user_counter}"
+    new_user = {
+        "id": uid,
+        "full_name": body.full_name,
+        "email": body.email,
+        "password": body.password,
+        "role": body.role,
+        "country_id": country["id"] if country else None,
+        "country_name": country["name"] if country else None,
+        "country_code": country["code"] if country else None,
+        "region": country["region"] if country else None,
+        "must_reset_password": True,
+        "permissions": [],
+    }
+    USERS[uid] = new_user
+    return {k: v for k, v in new_user.items() if k != "password"}
+
+
+class UserRoleBody(BaseModel):
+    role: str
+
+
+@api.patch("/admin/users/{user_id}/role")
+async def admin_update_role(user_id: str, body: UserRoleBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    valid_roles = ["admin", "user", "principal", "hr", "manager", "accountant"]
+    if body.role not in valid_roles:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    USERS[user_id]["role"] = body.role
+    return {k: v for k, v in USERS[user_id].items() if k != "password"}
+
+
+class UserCountryBody(BaseModel):
+    country_id: Optional[int] = None
+    country_code: Optional[str] = None
+
+
+@api.patch("/admin/users/{user_id}/country")
+async def admin_assign_country(user_id: str, body: UserCountryBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    country = None
+    if body.country_id is not None:
+        country = next((c for c in COUNTRIES if c["id"] == body.country_id), None)
+    elif body.country_code:
+        country = next((c for c in COUNTRIES if c["code"].upper() == body.country_code.upper()), None)
+    if not country:
+        raise HTTPException(status_code=400, detail="country_id or country_code is required")
+    USERS[user_id]["country_id"] = country["id"]
+    USERS[user_id]["country_name"] = country["name"]
+    USERS[user_id]["country_code"] = country["code"]
+    USERS[user_id]["region"] = country["region"]
+    return {k: v for k, v in USERS[user_id].items() if k != "password"}
+
+
+class ResetPasswordBody(BaseModel):
+    password: Optional[str] = None
+
+
+@api.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password(user_id: str, body: ResetPasswordBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    import secrets
+    import string
+    pw = body.password if body.password else "".join(
+        secrets.choice(string.ascii_letters + string.digits) for _ in range(12)
+    )
+    if len(pw) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    USERS[user_id]["password"] = pw
+    USERS[user_id]["must_reset_password"] = True
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "email": USERS[user_id]["email"],
+        "temporary_password": pw,
+        "must_reset_password": True,
+    }
+
+
+@api.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, user=Depends(get_current_user)):
+    _require_admin(user)
+    if user_id not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Kendi hesabınızı silemezsiniz")
+    USERS.pop(user_id, None)
+    return {"ok": True}
+
+
+@api.get("/admin/countries")
+async def admin_list_countries(user=Depends(get_current_user)):
+    _require_admin(user)
+    return COUNTRIES
+
+
 @api.get("/schools/{school_id}/scenarios/{scenario_id}/report")
 async def get_report(school_id: str, scenario_id: str, mode: str = "original", user=Depends(get_current_user)):
     inputs = _get_inputs(scenario_id)
