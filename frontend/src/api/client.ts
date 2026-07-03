@@ -157,6 +157,59 @@ export type Country = {
   region?: string | null;
 };
 
+export type ScenarioKpi = {
+  net_ciro: number | null;
+  net_result: number | null;
+  students_total: number | null;
+};
+
+export type ScenarioQueueRow = {
+  scenario: {
+    id: number | string;
+    name: string;
+    academic_year: string;
+    status: string;
+    submitted_at?: string | null;
+    review_note?: string | null;
+    reviewed_at?: string | null;
+    input_currency?: string;
+    local_currency_code?: string;
+    fx_usd_to_local?: number;
+    progress_pct?: number | null;
+    progress_missing_preview?: string | null;
+    progress_missing_count?: number;
+    sent_at?: string | null;
+    checked_at?: string | null;
+  };
+  school: { id: number | string; name: string };
+  country: { id: number; name: string; region?: string | null };
+  kpis: { y1: ScenarioKpi | null; y2: ScenarioKpi | null; y3: ScenarioKpi | null };
+  missingKpis: { y1: boolean; y2: boolean; y3: boolean };
+};
+
+export type ApprovalBatchRow = {
+  batch_id: number | string;
+  status: string;
+  academic_year: string;
+  created_at: string;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  country: { id: number; name: string; region?: string | null };
+  scenario_count: number;
+  school_count: number;
+};
+
+export type BatchItem = {
+  scenario_id: number | string;
+  scenario_name: string;
+  school_id: number | string;
+  school_name: string;
+  status: string;
+  sent_at?: string | null;
+  progress_pct?: number | null;
+  is_source: boolean;
+};
+
 export const api = {
   login: (email: string, password: string) =>
     request<LoginResponse>("/auth/login", { method: "POST", body: { email, password } }),
@@ -215,6 +268,64 @@ export const api = {
   adminDeleteUser: (userId: number | string) =>
     request<{ ok: true }>(`/admin/users/${userId}`, { method: "DELETE" }),
 
-  // ---- Admin: countries (for pickers) ----
+  // ---- Admin: countries (for pickers and management) ----
   adminListCountries: () => request<Country[] | { countries: Country[]; items?: Country[] }>("/admin/countries"),
+  adminCreateCountry: (payload: { name: string; code: string; region: string }) =>
+    request<Country>("/admin/countries", { method: "POST", body: payload }),
+  adminListCountrySchools: (countryId: number | string, opts: { includeClosed?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.includeClosed) qs.set("includeClosed", "1");
+    const s = qs.toString();
+    return request<School[]>(`/admin/countries/${countryId}/schools${s ? `?${s}` : ""}`);
+  },
+  adminCreateCountrySchool: (countryId: number | string, payload: { name: string }) =>
+    request<School>(`/admin/countries/${countryId}/schools`, { method: "POST", body: payload }),
+  adminUpdateSchool: (
+    schoolId: number | string,
+    payload: { name?: string; status?: "active" | "closed" },
+  ) => request<School>(`/admin/schools/${schoolId}`, { method: "PATCH", body: payload }),
+
+  // ---- Admin: approvals (scenarios + country batches) ----
+  adminGetScenarioQueue: (
+    opts: { status?: string; academicYear?: string; region?: string; countryId?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts.status) qs.set("status", opts.status);
+    if (opts.academicYear) qs.set("academicYear", opts.academicYear);
+    if (opts.region) qs.set("region", opts.region);
+    if (opts.countryId != null) qs.set("countryId", String(opts.countryId));
+    const s = qs.toString();
+    return request<ScenarioQueueRow[]>(`/admin/scenarios/queue${s ? `?${s}` : ""}`);
+  },
+  adminReviewScenario: (
+    scenarioId: number | string,
+    body: {
+      action: "approve" | "revise";
+      note?: string | null;
+      includedYears?: string[];
+      revisionWorkIds?: string[];
+    },
+  ) => request<{ ok: true }>(`/admin/scenarios/${scenarioId}/review`, { method: "PATCH", body }),
+  adminGetApprovalBatchQueue: (
+    opts: { status?: string; academicYear?: string; region?: string; countryId?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts.status) qs.set("status", opts.status);
+    if (opts.academicYear) qs.set("academicYear", opts.academicYear);
+    if (opts.region) qs.set("region", opts.region);
+    if (opts.countryId != null) qs.set("countryId", String(opts.countryId));
+    const s = qs.toString();
+    return request<ApprovalBatchRow[]>(`/admin/approval-batches/queue${s ? `?${s}` : ""}`);
+  },
+  adminGetApprovalBatch: (batchId: number | string) =>
+    request<{ batch: ApprovalBatchRow; items: BatchItem[] }>(`/admin/approval-batches/${batchId}`),
+  adminReviewApprovalBatch: (
+    batchId: number | string,
+    body: {
+      action: "approve" | "revise";
+      note?: string | null;
+      includedYears?: string[];
+      revisionWorkIds?: string[];
+    },
+  ) => request<{ ok: true }>(`/admin/approval-batches/${batchId}/review`, { method: "PATCH", body }),
 };

@@ -19,6 +19,38 @@ import { api, School } from "@/src/api/client";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { BrandMark, Card, EmptyState, ProgressBar } from "@/src/ui/components";
 
+function AdminTile({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  testID,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      style={({ pressed }) => [styles.adminTile, { opacity: pressed ? 0.85 : 1 }]}
+    >
+      <View style={styles.adminTileIcon}>
+        <Ionicons name={icon} size={18} color={colors.primary} />
+      </View>
+      <Text style={styles.adminTileTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      <Text style={styles.adminTileSub} numberOfLines={1}>
+        {subtitle}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function SchoolsScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
@@ -77,20 +109,29 @@ export default function SchoolsScreen() {
         </Text>
 
         {user?.role === "admin" ? (
-          <Pressable
-            testID="schools-admin-users-link"
-            onPress={() => router.push("/admin/users")}
-            style={({ pressed }) => [styles.adminCta, { opacity: pressed ? 0.85 : 1 }]}
-          >
-            <View style={styles.adminIcon}>
-              <Ionicons name="people-outline" size={18} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.adminTitle}>Kullanıcı Yönetimi</Text>
-              <Text style={styles.adminSub}>Kullanıcı ekle, rol ata, parola sıfırla</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-          </Pressable>
+          <View style={styles.adminGrid}>
+            <AdminTile
+              icon="people-outline"
+              title="Kullanıcılar"
+              subtitle="Kullanıcı ekle & rol"
+              onPress={() => router.push("/admin/users")}
+              testID="schools-admin-users-link"
+            />
+            <AdminTile
+              icon="earth-outline"
+              title="Ülkeler"
+              subtitle="Ülke & okul yönetimi"
+              onPress={() => router.push("/admin/countries")}
+              testID="schools-admin-countries-link"
+            />
+            <AdminTile
+              icon="checkmark-done-outline"
+              title="Onaylar"
+              subtitle="Senaryo & batch onayı"
+              onPress={() => router.push("/admin/approvals")}
+              testID="schools-admin-approvals-link"
+            />
+          </View>
         ) : null}
       </View>
 
@@ -193,6 +234,30 @@ const styles = StyleSheet.create({
   hello: { color: colors.textDim, ...font.small, textTransform: "uppercase", letterSpacing: 0.6 },
   userLine: { color: colors.text, ...font.h2, marginTop: 2 },
   roleLine: { color: colors.textDim, ...font.small, marginTop: 4 },
+  adminGrid: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  adminTile: {
+    flex: 1,
+    padding: spacing.md,
+    backgroundColor: colors.bgElev,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 8,
+  },
+  adminTileIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.md,
+    backgroundColor: "#F5B30122",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminTileTitle: { color: colors.text, ...font.bodyMd, fontSize: 14 },
+  adminTileSub: { color: colors.textDim, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.4 },
   adminCta: {
     flexDirection: "row",
     alignItems: "center",

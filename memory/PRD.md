@@ -49,7 +49,48 @@ See `/app/memory/test_credentials.md`.
 ## Test status
 Backend: 12/12 pytest passed. Frontend: full E2E flow (login → schools → scenarios → editor → save → report → logout) verified.
 
-## Iteration 2 — Admin Users + real backend wired
+## Iteration 3 — Countries + Approvals shipped
+
+### Schools screen refactor
+- Replaced single "Kullanıcı Yönetimi" CTA with a **3-tile grid** for admin users: **Kullanıcılar**, **Ülkeler**, **Onaylar**.
+
+### Ülkeler (`/admin/countries`)
+- List of countries (name, code chip, region). Tap → country detail.
+- "Ekle" bottom sheet: name, code (auto-uppercase, 2-3 chars), region chips (EMEA/APAC/AMERICAS/GLOBAL).
+- Duplicate code → 409 with Turkish error.
+
+### Country detail (`/admin/country/[id]`)
+- Country info header (flag chip, region, school count).
+- Status filter chips: Tümü / Aktif / Kapalı.
+- Schools list per country with tap-to-open (goes to normal scenarios list) and per-row **KAPAT / AÇ** toggle.
+- "Okul Ekle" bottom sheet with country context reminder.
+
+### Onaylar (`/admin/approvals`)
+- Segmented control: **Senaryolar** | **Ülke Batch'leri**.
+- Status filter chips (Tümü / Onay Bekliyor / Gönderildi / Onaylandı / Revizyon / Taslak).
+- **Scenario cards:** school + scenario + academic year, country/region, colored status badge, Y1/Y2/Y3 KPI mini strip (net_result + margin), review note if present, progress %.
+- **Batch cards:** country name, batch id + academic year, scenario/school count.
+- **Review bottom sheet** (both scenarios and batches):
+  - Toggle **Onayla / Revizyon İste**.
+  - Approve → year chips (Y1/Y2/Y3, defaulted all on).
+  - Revise → module chips (Temel Bilgiler / Kapasite / İK / Gelirler / Giderler) + required note.
+  - Batch review shows expandable list of contained scenarios (school + scenario names, "Kaynak" badge).
+
+### Backend / API surface (added to demo backend at `/app/backend/server.py`)
+- `POST /api/admin/countries` (409 on duplicate code)
+- `GET /api/admin/countries/{id}/schools` + `POST` to create school (409 on dup name)
+- `PATCH /api/admin/schools/{id}` for name/status
+- `GET /api/admin/scenarios/queue` (with status/academicYear/region/countryId filters)
+- `PATCH /api/admin/scenarios/{id}/review` (approve requires `sent_for_approval` status; revise requires note + revisionWorkIds)
+- `GET /api/admin/approval-batches/queue` + `GET /api/admin/approval-batches/{id}` (detail with items)
+- `PATCH /api/admin/approval-batches/{id}/review`
+
+### Testing
+Verified via curl: create/list countries, dup 409, list/create schools, close/reopen school, scenarios queue, approve (409 on wrong status), revise (400 without note), batch queue, batch detail, batch approve.
+Verified via mobile screenshots: all 9 flows (schools grid → countries list → create country → country detail → approvals scenarios → review approve → review revise → batches → batch review with items).
+
+### On phone (via Expo Go)
+`EXPO_PUBLIC_BACKEND_URL` is set to **http://tmffinance.com** — all these admin flows call your real backend when running on a device.
 
 - `EXPO_PUBLIC_BACKEND_URL` now points to **http://tmffinance.com** (user's real Node.js/MySQL backend). Their `/api/*` routes match the mobile client's expectations.
 - iOS `NSAppTransportSecurity` + Android `usesCleartextTraffic` exceptions added in `app.json` for `tmffinance.com` (their API is HTTP not HTTPS — required for native builds).

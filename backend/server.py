@@ -534,6 +534,416 @@ async def admin_list_countries(user=Depends(get_current_user)):
     return COUNTRIES
 
 
+class CreateCountryBody(BaseModel):
+    name: str
+    code: str
+    region: str
+
+
+@api.post("/admin/countries")
+async def admin_create_country(body: CreateCountryBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    name = body.name.strip()
+    code = body.code.strip().upper()
+    region = body.region.strip()
+    if not name or not code or not region:
+        raise HTTPException(status_code=400, detail="name, code, and region are required")
+    if any(c["code"].upper() == code for c in COUNTRIES):
+        raise HTTPException(status_code=409, detail="Country code already exists")
+    new_id = max((c["id"] for c in COUNTRIES), default=0) + 1
+    c = {"id": new_id, "name": name, "code": code, "region": region}
+    COUNTRIES.append(c)
+    return c
+
+
+# Add country_id to seed schools if missing
+for s in SCHOOLS:
+    s.setdefault("country_id", 1)
+    s.setdefault("status", "active")
+
+
+@api.get("/admin/countries/{country_id}/schools")
+async def admin_list_country_schools(
+    country_id: int,
+    includeClosed: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    _require_admin(user)
+    include_closed = str(includeClosed or "1") == "1"
+    rows = []
+    for s in SCHOOLS:
+        if int(s.get("country_id", 0)) != country_id:
+            continue
+        if not include_closed and s.get("status") != "active":
+            continue
+        rows.append(s)
+    return rows
+
+
+class CreateSchoolBody(BaseModel):
+    name: str
+
+
+@api.post("/admin/countries/{country_id}/schools")
+async def admin_create_country_school(
+    country_id: int, body: CreateSchoolBody, user=Depends(get_current_user),
+):
+    _require_admin(user)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    country = next((c for c in COUNTRIES if c["id"] == country_id), None)
+    if not country:
+        raise HTTPException(status_code=404, detail="Country not found")
+    if any(s.get("country_id") == country_id and s.get("name") == name for s in SCHOOLS):
+        raise HTTPException(status_code=409, detail="School already exists for this country")
+    new_id = f"s_{len(SCHOOLS) + 1}_{country_id}"
+    school = {
+        "id": new_id,
+        "name": name,
+        "city": country["name"],
+        "country_id": country_id,
+        "status": "active",
+        "created_at": _now(),
+        "updated_at": _now(),
+        "progress": 0,
+    }
+    SCHOOLS.append(school)
+    SCENARIOS[new_id] = []
+    return school
+
+
+class UpdateSchoolBody(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+
+
+@api.patch("/admin/schools/{school_id}")
+async def admin_update_school(
+    school_id: str, body: UpdateSchoolBody, user=Depends(get_current_user),
+):
+    _require_admin(user)
+    school = next((s for s in SCHOOLS if str(s["id"]) == str(school_id)), None)
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    if body.name is None and body.status is None:
+        raise HTTPException(status_code=400, detail="name or status is required")
+    if body.name is not None:
+        n = body.name.strip()
+        if not n:
+            raise HTTPException(status_code=400, detail="name is required")
+        school["name"] = n
+    if body.status is not None:
+        if body.status not in ("active", "closed"):
+            raise HTTPException(status_code=400, detail="Invalid status")
+        school["status"] = body.status
+    school["updated_at"] = _now()
+    return school
+
+
+# ---------------------------------------------------------------------------
+# Approvals — scenarios queue + country approval batches
+# ---------------------------------------------------------------------------
+# Seed additional scenarios into different states so the queue has data
+_seeded_extra = False
+
+
+def _seed_approvals():
+    global _seeded_extra
+    if _seeded_extra:
+        return
+    _seeded_extra = True
+    # Give existing scenarios statuses that make the queue interesting
+    now = _now()
+    for sid, scs in SCENARIOS.items():
+        if not scs:
+            continue
+        # Set first scenario to submitted / sent_for_approval
+        for i, sc in enumerate(scs):
+            sc.setdefault("academic_year", "2026-2027")
+            sc.setdefault("submitted_at", now)
+            sc.setdefault("kpis", {
+                "y1": {"net_ciro": 50_000_000 + i * 1_000_000, "net_result": 8_000_000 + i * 200_000, "students_total": 620 - i * 20},
+                "y2": {"net_ciro": 55_000_000 + i * 1_100_000, "net_result": 9_500_000 + i * 220_000, "students_total": 660 - i * 20},
+                "y3": {"net_ciro": 60_000_000 + i * 1_200_000, "net_result": 11_000_000 + i * 240_000, "students_total": 700 - i * 20},
+            })
+            sc.setdefault("progress_pct", 82 - i * 5)
+        # First scenario → sent_for_approval so it's approvable
+        scs[0]["status"] = "sent_for_approval"
+        if len(scs) > 1:
+            scs[1]["status"] = "submitted"
+
+
+BATCHES: List[Dict[str, Any]] = []
+
+
+def _seed_batches():
+    if BATCHES:
+        return
+    now = _now()
+    BATCHES.append({
+        "batch_id": 1,
+        "status": "submitted",
+        "academic_year": "2026-2027",
+        "created_at": now,
+        "reviewed_at": None,
+        "review_note": None,
+        "country": {"id": 1, "name": "Türkiye", "region": "EMEA"},
+        "items": [
+            {"scenario_id": "sc1a", "school_id": "s1", "is_source": True},
+            {"scenario_id": "sc2a", "school_id": "s2", "is_source": False},
+        ],
+    })
+    BATCHES.append({
+        "batch_id": 2,
+        "status": "approved",
+        "academic_year": "2025-2026",
+        "created_at": now,
+        "reviewed_at": now,
+        "review_note": "Onaylandı, tüm yıllar dahil.",
+        "country": {"id": 1, "name": "Türkiye", "region": "EMEA"},
+        "items": [
+            {"scenario_id": "sc1b", "school_id": "s1", "is_source": True},
+        ],
+    })
+
+
+def _scenario_row(scenario: Dict[str, Any]) -> Dict[str, Any]:
+    school = next((s for s in SCHOOLS if str(s["id"]) == str(scenario["school_id"])), None)
+    country = None
+    if school:
+        country = next((c for c in COUNTRIES if c["id"] == school.get("country_id")), None)
+    kpis = scenario.get("kpis") or {"y1": None, "y2": None, "y3": None}
+    return {
+        "scenario": {
+            "id": scenario["id"],
+            "name": scenario["name"],
+            "academic_year": scenario.get("academic_year", "2026-2027"),
+            "status": scenario.get("status", "draft"),
+            "submitted_at": scenario.get("submitted_at"),
+            "review_note": scenario.get("review_note"),
+            "reviewed_at": scenario.get("reviewed_at"),
+            "input_currency": scenario.get("input_currency"),
+            "local_currency_code": scenario.get("local_currency_code"),
+            "fx_usd_to_local": scenario.get("fx_usd_to_local"),
+            "progress_pct": scenario.get("progress_pct"),
+            "progress_missing_preview": None,
+            "progress_missing_count": 0,
+            "sent_at": scenario.get("sent_at"),
+            "checked_at": scenario.get("checked_at"),
+        },
+        "school": {"id": school["id"], "name": school["name"]} if school else {"id": "", "name": "?"},
+        "country": (
+            {"id": country["id"], "name": country["name"], "region": country.get("region")}
+            if country
+            else {"id": 0, "name": "?", "region": None}
+        ),
+        "kpis": kpis,
+        "missingKpis": {"y1": kpis.get("y1") is None, "y2": kpis.get("y2") is None, "y3": kpis.get("y3") is None},
+    }
+
+
+@api.get("/admin/scenarios/queue")
+async def admin_scenarios_queue(
+    status: Optional[str] = None,
+    academicYear: Optional[str] = None,
+    region: Optional[str] = None,
+    countryId: Optional[int] = None,
+    user=Depends(get_current_user),
+):
+    _require_admin(user)
+    _seed_approvals()
+    rows = []
+    for scs in SCENARIOS.values():
+        for sc in scs:
+            row = _scenario_row(sc)
+            if status and row["scenario"]["status"] != status:
+                continue
+            if academicYear and row["scenario"]["academic_year"] != academicYear:
+                continue
+            if region and (row["country"].get("region") != region):
+                continue
+            if countryId is not None and row["country"]["id"] != countryId:
+                continue
+            rows.append(row)
+    return rows
+
+
+class ReviewBody(BaseModel):
+    action: str
+    note: Optional[str] = None
+    includedYears: Optional[List[str]] = None
+    revisionWorkIds: Optional[List[str]] = None
+
+
+VALID_YEARS = ["y1", "y2", "y3"]
+VALID_WORK_IDS = ["temelBilgiler", "kapasite", "ik", "gelirler", "giderler"]
+
+
+@api.patch("/admin/scenarios/{scenario_id}/review")
+async def admin_review_scenario(scenario_id: str, body: ReviewBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    scenario = None
+    for scs in SCENARIOS.values():
+        for sc in scs:
+            if str(sc["id"]) == str(scenario_id):
+                scenario = sc
+                break
+        if scenario:
+            break
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    if body.action not in ("approve", "revise"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+    if body.action == "approve":
+        if scenario.get("status") != "sent_for_approval":
+            raise HTTPException(
+                status_code=409,
+                detail="Scenario must be sent for approval before admin approval",
+            )
+        years = body.includedYears or list(VALID_YEARS)
+        for y in years:
+            if y not in VALID_YEARS:
+                raise HTTPException(status_code=400, detail=f"Invalid year: {y}")
+        scenario["status"] = "approved"
+        scenario["reviewed_at"] = _now()
+        scenario["review_note"] = body.note
+        scenario["included_years"] = years
+    else:
+        if scenario.get("status") not in ("sent_for_approval", "approved", "submitted"):
+            raise HTTPException(
+                status_code=409,
+                detail="Scenario must be sent for approval or approved to request revision",
+            )
+        if not (body.note and body.note.strip()):
+            raise HTTPException(status_code=400, detail="note is required for revision requests")
+        if not body.revisionWorkIds:
+            raise HTTPException(status_code=400, detail="revisionWorkIds must be a non-empty array")
+        for wid in body.revisionWorkIds:
+            if wid not in VALID_WORK_IDS:
+                raise HTTPException(status_code=400, detail=f"Invalid work id: {wid}")
+        scenario["status"] = "revision_requested"
+        scenario["review_note"] = body.note
+        scenario["reviewed_at"] = _now()
+        scenario["revision_work_ids"] = body.revisionWorkIds
+    return {"ok": True}
+
+
+@api.get("/admin/approval-batches/queue")
+async def admin_batch_queue(
+    status: Optional[str] = None,
+    academicYear: Optional[str] = None,
+    region: Optional[str] = None,
+    countryId: Optional[int] = None,
+    user=Depends(get_current_user),
+):
+    _require_admin(user)
+    _seed_batches()
+    rows = []
+    for b in BATCHES:
+        if status and b["status"] != status:
+            continue
+        if academicYear and b["academic_year"] != academicYear:
+            continue
+        if region and b["country"].get("region") != region:
+            continue
+        if countryId is not None and b["country"]["id"] != countryId:
+            continue
+        rows.append({
+            "batch_id": b["batch_id"],
+            "status": b["status"],
+            "academic_year": b["academic_year"],
+            "created_at": b["created_at"],
+            "reviewed_at": b.get("reviewed_at"),
+            "review_note": b.get("review_note"),
+            "country": b["country"],
+            "scenario_count": len(b.get("items", [])),
+            "school_count": len({i["school_id"] for i in b.get("items", [])}),
+        })
+    return rows
+
+
+def _find_batch(batch_id: str):
+    for b in BATCHES:
+        if str(b["batch_id"]) == str(batch_id):
+            return b
+    return None
+
+
+@api.get("/admin/approval-batches/{batch_id}")
+async def admin_batch_detail(batch_id: str, user=Depends(get_current_user)):
+    _require_admin(user)
+    _seed_batches()
+    b = _find_batch(batch_id)
+    if not b:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    items = []
+    for it in b.get("items", []):
+        scenario = None
+        for scs in SCENARIOS.values():
+            for sc in scs:
+                if str(sc["id"]) == str(it["scenario_id"]):
+                    scenario = sc
+                    break
+            if scenario:
+                break
+        school = next(
+            (s for s in SCHOOLS if str(s["id"]) == str(it["school_id"])), None,
+        )
+        items.append({
+            "scenario_id": it["scenario_id"],
+            "scenario_name": scenario["name"] if scenario else "?",
+            "school_id": it["school_id"],
+            "school_name": school["name"] if school else "?",
+            "status": scenario["status"] if scenario else "?",
+            "sent_at": scenario.get("sent_at") if scenario else None,
+            "progress_pct": scenario.get("progress_pct") if scenario else None,
+            "is_source": it.get("is_source", False),
+        })
+    return {
+        "batch": {
+            "id": b["batch_id"],
+            "status": b["status"],
+            "academic_year": b["academic_year"],
+            "created_at": b["created_at"],
+            "reviewed_at": b.get("reviewed_at"),
+            "review_note": b.get("review_note"),
+            "country": b["country"],
+        },
+        "items": items,
+    }
+
+
+@api.patch("/admin/approval-batches/{batch_id}/review")
+async def admin_review_batch(batch_id: str, body: ReviewBody, user=Depends(get_current_user)):
+    _require_admin(user)
+    b = _find_batch(batch_id)
+    if not b:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if body.action not in ("approve", "revise"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+    if body.action == "approve":
+        years = body.includedYears or list(VALID_YEARS)
+        for y in years:
+            if y not in VALID_YEARS:
+                raise HTTPException(status_code=400, detail=f"Invalid year: {y}")
+        b["status"] = "approved"
+        b["reviewed_at"] = _now()
+        b["review_note"] = body.note
+    else:
+        if not (body.note and body.note.strip()):
+            raise HTTPException(status_code=400, detail="note is required for revision requests")
+        if not body.revisionWorkIds:
+            raise HTTPException(status_code=400, detail="revisionWorkIds must be a non-empty array")
+        for wid in body.revisionWorkIds:
+            if wid not in VALID_WORK_IDS:
+                raise HTTPException(status_code=400, detail=f"Invalid work id: {wid}")
+        b["status"] = "revision_requested"
+        b["reviewed_at"] = _now()
+        b["review_note"] = body.note
+    return {"ok": True}
+
+
 @api.get("/schools/{school_id}/scenarios/{scenario_id}/report")
 async def get_report(school_id: str, scenario_id: str, mode: str = "original", user=Depends(get_current_user)):
     inputs = _get_inputs(scenario_id)
