@@ -8,6 +8,7 @@ Implemented:
 - Save payloads include generated `modifiedPaths` and `modifiedResources`.
 - Other scenario modules remain read-only.
 - Tab switching, pull-to-refresh, footer refresh, and the visible back button are blocked while unsaved Temel Bilgiler edits exist.
+- Android hardware back, React Navigation route removal, and browser unload are also blocked/warned while unsaved Temel Bilgiler edits exist.
 
 Deferred:
 - Previous-year planned performance comparison values from the web editor.

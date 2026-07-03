@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,7 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 
 import {
   Inputs,
@@ -293,6 +294,7 @@ export default function ScenarioScreen() {
   const { schoolId, scenarioId } = useLocalSearchParams<{ schoolId: string; scenarioId: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const navigation = useNavigation();
   const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ModuleKey>("temel_bilgiler");
@@ -336,6 +338,9 @@ export default function ScenarioScreen() {
     [permissionScope, user],
   );
   const dirty = dirtyResources.length > 0;
+  const warnUnsavedNavigation = useCallback((message = "Once degisiklikleri kaydedin veya vazgecin.") => {
+    setActionMessage(message);
+  }, []);
 
   const load = useCallback(async () => {
     if (!schoolId || !scenarioId) return;
@@ -406,12 +411,41 @@ export default function ScenarioScreen() {
   useEffect(() => {
     if (visibleModules.length && !visibleModules.some((module) => module.key === activeTab)) {
       if (dirty) {
-        setActionMessage("Once degisiklikleri kaydedin veya vazgecin.");
+        warnUnsavedNavigation();
         return;
       }
       setActiveTab(visibleModules[0].key);
     }
-  }, [activeTab, dirty, visibleModules]);
+  }, [activeTab, dirty, visibleModules, warnUnsavedNavigation]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      warnUnsavedNavigation();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [dirty, warnUnsavedNavigation]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (!dirty) return;
+      event.preventDefault();
+      warnUnsavedNavigation();
+    });
+    return unsubscribe;
+  }, [dirty, navigation, warnUnsavedNavigation]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
 
   const activeModule = visibleModules.find((module) => module.key === activeTab) || visibleModules[0] || MODULES[0];
   const activeWorkItem = activeModule.workId
