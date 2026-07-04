@@ -21,6 +21,7 @@ import {
 } from "@/src/admin/pr09";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, EmptyState, Input } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 function goBack(router: ReturnType<typeof useRouter>) {
   if (router.canGoBack()) router.back();
@@ -191,7 +192,7 @@ export default function AdminProgressScreen() {
             tintColor={colors.primary}
           />
         }
-        contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xxl, gap: spacing.md }}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}
       >
         {err ? <Notice icon="alert-circle-outline" color={colors.danger} text={err} /> : null}
         {message ? <Notice icon="information-circle-outline" color={colors.primary} text={message} /> : null}
@@ -317,6 +318,7 @@ export default function AdminProgressScreen() {
           </>
         )}
       </ScrollView>
+      <AppBottomNav activeKey="permissions" />
     </SafeAreaView>
   );
 }

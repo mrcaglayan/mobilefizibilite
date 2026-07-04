@@ -22,6 +22,7 @@ import * as Haptics from "expo-haptics";
 import { AdminUser, Country, api } from "@/src/api/client";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Chip, EmptyState, Input } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 const ROLES = [
   { key: "admin", label: "Yönetici" },
@@ -160,7 +161,7 @@ export default function AdminUsersScreen() {
           keyExtractor={(u) => String(u.id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
+            paddingBottom: insets.bottom + 112,
             gap: spacing.sm,
           }}
           refreshControl={
@@ -230,6 +231,7 @@ export default function AdminUsersScreen() {
           await load();
         }}
       />
+      <AppBottomNav activeKey="users" />
     </SafeAreaView>
   );
 }

@@ -19,6 +19,7 @@ import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { BottomSheet } from "@/src/ui/BottomSheet";
 import { Button, Card, Chip, EmptyState, Input, ProgressBar } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 const WORK_ID_LABELS: Record<string, string> = {
   temel_bilgiler: "Temel Bilgiler",
@@ -287,7 +288,7 @@ export default function ManagerReviewQueueScreen() {
               </ScrollView>
             </View>
           }
-          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xxl, gap: spacing.md }}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}
           ListEmptyComponent={<EmptyState icon="checkmark-done-outline" title="Inceleme kaydi yok" subtitle="Bu filtrede kontrol bekleyen senaryo bulunmuyor." />}
           renderItem={({ item }) => (
             <ReviewCard
@@ -353,6 +354,7 @@ export default function ManagerReviewQueueScreen() {
           />
         </View>
       </BottomSheet>
+      <AppBottomNav activeKey="review" />
     </SafeAreaView>
   );
 }

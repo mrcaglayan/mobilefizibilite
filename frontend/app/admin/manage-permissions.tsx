@@ -22,6 +22,7 @@ import {
 } from "@/src/admin/pr09";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, EmptyState, Input } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 const ROLES = [
   { key: "admin", label: "Yonetici" },
@@ -346,7 +347,7 @@ export default function AdminManagePermissionsScreen() {
               <Text style={styles.listLabel}>Kullanicilar</Text>
             </View>
           }
-          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xxl, gap: spacing.sm }}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.sm }}
           ListEmptyComponent={<EmptyState icon="people-outline" title="Kullanici bulunamadi" />}
           renderItem={({ item }) => {
             const selected = String(item.id) === String(selectedUserId);
@@ -370,6 +371,7 @@ export default function AdminManagePermissionsScreen() {
           }}
         />
       )}
+      <AppBottomNav activeKey="permissions" />
     </SafeAreaView>
   );
 }

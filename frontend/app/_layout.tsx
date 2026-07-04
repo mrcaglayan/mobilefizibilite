@@ -9,6 +9,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider, useAuth } from "@/src/auth/AuthContext";
 import { getHomeRoute } from "@/src/auth/routes";
 import { colors } from "@/src/theme";
+import { ThemeProvider, useAppTheme } from "@/src/theme-provider";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -24,14 +25,27 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
+    <ThemeProvider>
+      <AppRoot />
+    </ThemeProvider>
+  );
+}
+
+function AppRoot() {
+  const theme = useAppTheme();
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+          <StatusBar
+            barStyle={theme.isDark ? "light-content" : "dark-content"}
+            backgroundColor={theme.colors.bg}
+          />
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: colors.bg },
+              contentStyle: { backgroundColor: theme.colors.bg },
               animation: "slide_from_right",
             }}
           />
@@ -46,6 +60,7 @@ function AuthRedirector() {
   const { bootstrapping, token, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const theme = useAppTheme();
 
   useEffect(() => {
     if (bootstrapping) return;
@@ -79,16 +94,16 @@ function AuthRedirector() {
 
   if (bootstrapping) {
     return (
-      <View style={overlayStyle}>
-        <ActivityIndicator color={colors.primary} />
+      <View style={[overlayStyle, { backgroundColor: theme.colors.bg }]}>
+        <ActivityIndicator color={theme.colors.primary} />
       </View>
     );
   }
 
   if (redirecting) {
     return (
-      <View style={overlayStyle}>
-        <ActivityIndicator color={colors.primary} />
+      <View style={[overlayStyle, { backgroundColor: theme.colors.bg }]}>
+        <ActivityIndicator color={theme.colors.primary} />
       </View>
     );
   }
@@ -102,7 +117,6 @@ const overlayStyle = {
   right: 0,
   bottom: 0,
   left: 0,
-  backgroundColor: colors.bg,
   alignItems: "center" as const,
   justifyContent: "center" as const,
 };

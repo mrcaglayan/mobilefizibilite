@@ -21,6 +21,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Chip, EmptyState, Input } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 import { BottomSheet } from "@/src/ui/BottomSheet";
 
 const ROLE_FILTERS = [
@@ -204,7 +205,7 @@ export default function ManagerUsersScreen() {
           keyExtractor={(u) => String(u.id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
+            paddingBottom: insets.bottom + 112,
             gap: spacing.sm,
           }}
           refreshControl={
@@ -297,6 +298,7 @@ export default function ManagerUsersScreen() {
           await load();
         }}
       />
+      <AppBottomNav activeKey="users" />
     </SafeAreaView>
   );
 }

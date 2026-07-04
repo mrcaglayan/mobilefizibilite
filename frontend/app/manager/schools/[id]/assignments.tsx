@@ -19,6 +19,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, EmptyState, Input, Row } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 const ASSIGNMENT_ROLES = [
   { key: "principal", label: "Principal" },
@@ -277,7 +278,7 @@ export default function ManagerSchoolAssignmentsScreen() {
               <Text style={styles.listLabel}>Mevcut Atamalar</Text>
             </View>
           }
-          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xxl, gap: spacing.md }}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}
           ListEmptyComponent={<EmptyState icon="person-add-outline" title="Atama yok" subtitle="Ustteki arama ile kullanici ekleyin." />}
           renderItem={({ item }) => {
             const assignedUser = usersById.get(String(item.userId));
@@ -329,6 +330,7 @@ export default function ManagerSchoolAssignmentsScreen() {
           }}
         />
       )}
+      <AppBottomNav activeKey="permissions" />
     </SafeAreaView>
   );
 }

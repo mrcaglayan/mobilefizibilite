@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import { api } from "@/src/api/client";
 import { colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, EmptyState, Input, Row } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 type AnyRecord = Record<string, any>;
 type YearKey = "y1" | "y2" | "y3";
@@ -106,7 +107,7 @@ export default function AdminReportsScreen() {
             tintColor={colors.primary}
           />
         }
-        contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xxl, gap: spacing.md }}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}
       >
         {err ? <Notice icon="alert-circle-outline" color={colors.danger} text={err} /> : null}
         {message ? <Notice icon="information-circle-outline" color={colors.primary} text={message} /> : null}
@@ -211,6 +212,7 @@ export default function AdminReportsScreen() {
           </>
         )}
       </ScrollView>
+      <AppBottomNav activeKey="schools" />
     </SafeAreaView>
   );
 }

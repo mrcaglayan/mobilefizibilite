@@ -26,6 +26,7 @@ import {
 import { colors, font, formatMoney, formatPct, radius, spacing } from "@/src/theme";
 import { Button, Chip, EmptyState } from "@/src/ui/components";
 import { BottomSheet } from "@/src/ui/BottomSheet";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 type ApprovalView = "scenarios" | "batches";
 
@@ -193,7 +194,7 @@ export default function AdminApprovalsScreen() {
           keyExtractor={(r) => String(r.scenario.id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
+            paddingBottom: insets.bottom + 112,
             gap: spacing.sm,
           }}
           refreshControl={
@@ -223,7 +224,7 @@ export default function AdminApprovalsScreen() {
           keyExtractor={(r) => String(r.batch_id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
+            paddingBottom: insets.bottom + 112,
             gap: spacing.sm,
           }}
           refreshControl={
@@ -267,6 +268,7 @@ export default function AdminApprovalsScreen() {
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       ) : null}
+      <AppBottomNav activeKey="review" />
     </SafeAreaView>
   );
 }

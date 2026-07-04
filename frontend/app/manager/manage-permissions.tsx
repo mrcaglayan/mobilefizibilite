@@ -24,6 +24,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, EmptyState, Input } from "@/src/ui/components";
+import { AppBottomNav } from "@/src/ui/AppBottomNav";
 
 const ROLES = [
   { key: "user", label: "Kullanici" },
@@ -69,6 +70,12 @@ function sortUsers(users: AdminUser[]) {
     const right = String(b.full_name || b.email || "").toLowerCase();
     return left.localeCompare(right);
   });
+}
+
+function friendlyError(error: any, fallback: string) {
+  const message = String(error?.message || "");
+  if (!message || /invalid limit|invalid offset|invalid order/i.test(message)) return fallback;
+  return message;
 }
 
 export default function ManagerManagePermissionsScreen() {
@@ -123,7 +130,7 @@ export default function ManagerManagePermissionsScreen() {
         setSelectedUserId((prev) => prev || String(params.userId));
       }
     } catch (error: any) {
-      setErr(error?.message || "Yetki verileri yuklenemedi.");
+      setErr(friendlyError(error, "Liste yüklenemedi. Lütfen tekrar deneyin."));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -153,7 +160,7 @@ export default function ManagerManagePermissionsScreen() {
       setPermissionScopes(draft.scopes);
       setSnapshot(stateSignature(nextRole, draft.selected, draft.scopes));
     } catch (error: any) {
-      setErr(error?.message || "Kullanici yetkileri yuklenemedi.");
+      setErr(friendlyError(error, "Kullanıcı yetkileri yüklenemedi. Lütfen tekrar deneyin."));
     } finally {
       setPermissionsLoading(false);
     }
@@ -244,7 +251,7 @@ export default function ManagerManagePermissionsScreen() {
       setSnapshot(stateSignature(selectedRole, permissionSelections, permissionScopes));
       setMessage("Kullanici yetkileri kaydedildi.");
     } catch (error: any) {
-      setErr(error?.message || "Kaydedilemedi.");
+      setErr(friendlyError(error, "Kaydedilemedi. Lütfen tekrar deneyin."));
     } finally {
       setSaving(false);
     }
@@ -395,7 +402,7 @@ export default function ManagerManagePermissionsScreen() {
               <Text style={styles.listLabel}>Kullanicilar</Text>
             </View>
           }
-          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xxl, gap: spacing.sm }}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.sm }}
           ListEmptyComponent={<EmptyState icon="people-outline" title="Kullanici bulunamadi" />}
           renderItem={({ item }) => {
             const selected = String(item.id) === String(selectedUserId);
@@ -419,6 +426,7 @@ export default function ManagerManagePermissionsScreen() {
           }}
         />
       )}
+      <AppBottomNav activeKey="permissions" />
     </SafeAreaView>
   );
 }

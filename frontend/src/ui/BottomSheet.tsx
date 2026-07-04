@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, font, radius, spacing } from "@/src/theme";
+import { font, radius, spacing } from "@/src/theme";
+import { useAppTheme } from "@/src/theme-provider";
 
 export function BottomSheet({
   visible,
@@ -28,9 +29,10 @@ export function BottomSheet({
   testID?: string;
 }) {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose} />
+      <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={onClose} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.wrap}
@@ -38,11 +40,18 @@ export function BottomSheet({
       >
         <View
           testID={testID}
-          style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: insets.bottom + spacing.md,
+              backgroundColor: colors.bgElev,
+              borderColor: colors.border,
+            },
+          ]}
         >
-          <View style={styles.grabber} />
-          <View style={styles.head}>
-            <Text style={styles.title}>{title}</Text>
+          <View style={[styles.grabber, { backgroundColor: colors.borderStrong }]} />
+          <View style={[styles.head, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={10} testID={testID ? `${testID}-close` : undefined}>
               <Ionicons name="close" size={22} color={colors.textDim} />
             </Pressable>
@@ -55,20 +64,17 @@ export function BottomSheet({
 }
 
 const styles = StyleSheet.create({
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
+  overlay: { ...StyleSheet.absoluteFillObject },
   wrap: { flex: 1, justifyContent: "flex-end" },
   sheet: {
-    backgroundColor: colors.bgElev,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     borderWidth: 1,
-    borderColor: colors.border,
     maxHeight: "90%",
   },
   grabber: {
     width: 40,
     height: 4,
-    backgroundColor: colors.borderStrong,
     borderRadius: 999,
     alignSelf: "center",
     marginTop: 10,
@@ -81,7 +87,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
-  title: { color: colors.text, ...font.h2 },
+  title: { ...font.h2 },
 });
