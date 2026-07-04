@@ -1,6 +1,6 @@
 // PR 03B scenario shell: production-safe workflow overview and gated actions.
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -328,10 +328,11 @@ function countCurriculumEntries(norm: unknown): number {
 }
 
 export default function ScenarioScreen() {
-  const { schoolId, scenarioId } = useLocalSearchParams<{ schoolId: string; scenarioId: string }>();
+  const { schoolId, scenarioId, tab } = useLocalSearchParams<{ schoolId: string; scenarioId: string; tab?: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
+  const appliedTabParamRef = useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<ModuleKey>("temel_bilgiler");
   const [context, setContext] = useState<ScenarioContext | null>(null);
@@ -395,6 +396,10 @@ export default function ScenarioScreen() {
   const warnUnsavedNavigation = useCallback((message = "Once degisiklikleri kaydedin veya vazgecin.") => {
     setActionMessage(message);
   }, []);
+
+  useEffect(() => {
+    appliedTabParamRef.current = null;
+  }, [schoolId, scenarioId, tab]);
 
   const load = useCallback(async () => {
     if (!schoolId || !scenarioId) return;
@@ -503,6 +508,19 @@ export default function ScenarioScreen() {
       setActiveTab(visibleModules[0].key);
     }
   }, [activeTab, dirty, visibleModules, warnUnsavedNavigation]);
+
+  useEffect(() => {
+    const requestedTab = typeof tab === "string" ? tab : "";
+    if (!requestedTab || appliedTabParamRef.current === requestedTab) return;
+    const target = visibleModules.find((module) => module.key === requestedTab);
+    if (!target) return;
+    if (dirty) {
+      warnUnsavedNavigation();
+      return;
+    }
+    appliedTabParamRef.current = requestedTab;
+    if (activeTab !== target.key) setActiveTab(target.key);
+  }, [activeTab, dirty, tab, visibleModules, warnUnsavedNavigation]);
 
   useEffect(() => {
     if (!dirty) return undefined;

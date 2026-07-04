@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 
 import { AdminUser, api } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
+import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Chip, EmptyState, Input } from "@/src/ui/components";
 import { BottomSheet } from "@/src/ui/BottomSheet";
@@ -51,8 +52,21 @@ export default function ManagerUsersScreen() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const canManage = can(me, "page.manage_permissions", "write", {
+    countryId: me?.country_id ?? null,
+    schoolId: null,
+  });
+  const canCreateUser = can(me, "user.create", "write", {
+    countryId: me?.country_id ?? null,
+    schoolId: null,
+  });
 
   const load = useCallback(async () => {
+    if (!canManage) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     setErr("");
     try {
       const res = await api.managerListUsers();
@@ -63,7 +77,7 @@ export default function ManagerUsersScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [canManage]);
 
   useEffect(() => {
     load();
@@ -80,6 +94,33 @@ export default function ManagerUsersScreen() {
       );
     });
   }, [users, search, roleFilter]);
+
+  if (!canManage) {
+    return (
+      <SafeAreaView style={styles.safe} edges={["top"]} testID="manager-users-denied">
+        <View style={styles.header}>
+          <Pressable
+            testID="manager-users-back"
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/schools")}
+            hitSlop={12}
+            style={styles.backBtn}
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerLabel}>MUDUR YONETIMI</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>Yetki Yok</Text>
+          </View>
+        </View>
+        <View style={{ padding: spacing.lg }}>
+          <View style={styles.errBox}>
+            <Ionicons name="lock-closed-outline" size={16} color={colors.warn} />
+            <Text style={styles.errText}>Bu ekran icin page.manage_permissions yazma yetkisi gerekir.</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]} testID="manager-users-screen">
@@ -98,13 +139,15 @@ export default function ManagerUsersScreen() {
             Kullanıcılar · {me?.country_name || "Ülke"}
           </Text>
         </View>
-        <Button
-          label="Ekle"
-          icon="add"
-          small
-          onPress={() => setShowCreate(true)}
-          testID="manager-users-add-button"
-        />
+        {canCreateUser ? (
+          <Button
+            label="Ekle"
+            icon="add"
+            small
+            onPress={() => setShowCreate(true)}
+            testID="manager-users-add-button"
+          />
+        ) : null}
       </View>
 
       {/* Search */}

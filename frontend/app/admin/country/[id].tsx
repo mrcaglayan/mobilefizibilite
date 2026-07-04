@@ -224,6 +224,15 @@ export default function AdminCountryScreen() {
                 </View>
               </Pressable>
               <Pressable
+                testID={`admin-country-assignments-${item.id}`}
+                onPress={() => router.push({ pathname: "/admin/schools/[id]/assignments", params: { id: String(item.id) } })}
+                hitSlop={8}
+                style={styles.assignmentBtn}
+              >
+                <Ionicons name="people-outline" size={16} color={colors.primary} />
+                <Text style={{ ...font.tiny, color: colors.primary }}>ATAMA</Text>
+              </Pressable>
+              <Pressable
                 testID={`admin-country-toggle-${item.id}`}
                 onPress={() => toggleSchoolStatus(item)}
                 hitSlop={8}
@@ -425,6 +434,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     backgroundColor: colors.bgElev2,
+  },
+  assignmentBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.primaryDark,
+    backgroundColor: "#F5B30114",
   },
   errBox: {
     flexDirection: "row",

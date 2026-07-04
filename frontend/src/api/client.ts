@@ -245,6 +245,20 @@ function asArray<T>(payload: unknown, key?: string): T[] {
   return [];
 }
 
+function normalizePermissions(payload: unknown): PermissionEntry[] {
+  return asArray<PermissionEntry>(payload, "permissions");
+}
+
+function normalizeAssignments(payload: unknown): SchoolAssignment[] {
+  return asArray<SchoolAssignment>(payload, "assignments")
+    .map((row) => ({
+      userId: Number(row.userId),
+      role: String(row.role || "principal"),
+      modules: Array.isArray(row.modules) ? row.modules.map(String) : [],
+    }))
+    .filter((row) => Number.isFinite(row.userId) && row.userId > 0);
+}
+
 function parseMaybeJson(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -495,6 +509,30 @@ export type WorkItemActionResponse = {
   scenario?: Scenario | null;
 };
 
+export type ManagerReviewQueueEntry = {
+  school: {
+    id: Id;
+    name: string;
+  };
+  scenario: {
+    id: Id;
+    name: string;
+    academic_year?: string | null;
+    status?: string | null;
+    submitted_at?: string | null;
+    sent_at?: string | null;
+    checked_at?: string | null;
+    checked_by?: Id | null;
+  };
+  requiredItems: Array<{
+    workId: string;
+    item?: WorkItem | null;
+  }>;
+  approvedCount?: number;
+  totalRequired?: number;
+  requiredIds?: string[];
+};
+
 export type SendForApprovalResponse = {
   ok?: true;
   scenario?: Scenario | null;
@@ -536,11 +574,19 @@ export type PermissionEntry = {
   id?: Id;
   resource: string;
   action: string;
+  label?: string;
+  group?: string;
   scope_country_id?: number | null;
   scope_school_id?: number | null;
 };
 
 export type PermissionCatalog = Record<string, PermissionEntry[]>;
+
+export type SchoolAssignment = {
+  userId: number;
+  role: "principal" | "hr" | "accountant" | string;
+  modules: string[];
+};
 
 export type ScenarioKpi = {
   net_ciro: number | null;
@@ -846,18 +892,24 @@ export const api = {
       body: { countryIds, config },
     }),
   adminGetPermissionsCatalog: () => request<PermissionCatalog>("/admin/permissions/catalog", { noCache: true }),
-  adminGetUserPermissions: (userId: Id) =>
-    request<PermissionEntry[]>(`/admin/users/${id(userId)}/permissions`, { noCache: true }),
+  adminGetUserPermissions: async (userId: Id) =>
+    normalizePermissions(await request(`/admin/users/${id(userId)}/permissions`, { noCache: true })),
   adminSetUserPermissions: (userId: Id, payload: { permissions: PermissionEntry[] }) =>
-    request<{ ok: true }>(`/admin/users/${id(userId)}/permissions`, { method: "PUT", body: payload }),
+    request<{ id?: Id; permissions?: PermissionEntry[] }>(`/admin/users/${id(userId)}/permissions`, {
+      method: "PUT",
+      body: payload,
+    }),
   adminGetSchoolPrincipals: (schoolId: Id) =>
     request<AdminUser[]>(`/admin/schools/${id(schoolId)}/principals`, { noCache: true }),
   adminSetSchoolPrincipals: (schoolId: Id, payload: { userIds: Id[] }) =>
     request<{ ok: true }>(`/admin/schools/${id(schoolId)}/principals`, { method: "PUT", body: payload }),
-  adminGetSchoolAssignments: (schoolId: Id) =>
-    request(`/admin/schools/${id(schoolId)}/assignments`, { noCache: true }),
-  adminSetSchoolAssignments: (schoolId: Id, payload: unknown) =>
-    request<{ ok: true }>(`/admin/schools/${id(schoolId)}/assignments`, { method: "PUT", body: payload }),
+  adminGetSchoolAssignments: async (schoolId: Id) =>
+    normalizeAssignments(await request(`/admin/schools/${id(schoolId)}/assignments`, { noCache: true })),
+  adminSetSchoolAssignments: (schoolId: Id, payload: { assignments: SchoolAssignment[] }) =>
+    request<{ id?: Id; assignments?: SchoolAssignment[] }>(`/admin/schools/${id(schoolId)}/assignments`, {
+      method: "PUT",
+      body: payload,
+    }),
 
   adminGetScenarioQueue: async (opts: QueryParams = {}) =>
     asArray<ScenarioQueueRow>(await request(`/admin/scenarios/queue${toQuery(opts)}`, { noCache: true })),
@@ -918,19 +970,23 @@ export const api = {
       },
     ),
   managerGetPermissionsCatalog: () => request<PermissionCatalog>("/manager/permissions/catalog", { noCache: true }),
-  managerGetUserPermissions: (userId: Id) =>
-    request<PermissionEntry[]>(`/manager/users/${id(userId)}/permissions`, { noCache: true }),
+  managerGetUserPermissions: async (userId: Id) =>
+    normalizePermissions(await request(`/manager/users/${id(userId)}/permissions`, { noCache: true })),
   managerSetUserPermissions: (userId: Id, payload: { permissions: PermissionEntry[] }) =>
     request<{ ok: true }>(`/manager/users/${id(userId)}/permissions`, { method: "PUT", body: payload }),
   managerGetSchoolPrincipals: (schoolId: Id) =>
     request<AdminUser[]>(`/manager/schools/${id(schoolId)}/principals`, { noCache: true }),
   managerSetSchoolPrincipals: (schoolId: Id, payload: { userIds: Id[] }) =>
     request<{ ok: true }>(`/manager/schools/${id(schoolId)}/principals`, { method: "PUT", body: payload }),
-  managerGetSchoolAssignments: (schoolId: Id) =>
-    request(`/manager/schools/${id(schoolId)}/assignments`, { noCache: true }),
-  managerSetSchoolAssignments: (schoolId: Id, payload: unknown) =>
-    request<{ ok: true }>(`/manager/schools/${id(schoolId)}/assignments`, { method: "PUT", body: payload }),
-  managerGetReviewQueue: () => request("/manager/review-queue", { noCache: true }),
+  managerGetSchoolAssignments: async (schoolId: Id) =>
+    normalizeAssignments(await request(`/manager/schools/${id(schoolId)}/assignments`, { noCache: true })),
+  managerSetSchoolAssignments: (schoolId: Id, payload: { assignments: SchoolAssignment[] }) =>
+    request<{ id?: Id; assignments?: SchoolAssignment[] }>(`/manager/schools/${id(schoolId)}/assignments`, {
+      method: "PUT",
+      body: payload,
+    }),
+  managerGetReviewQueue: async () =>
+    asArray<ManagerReviewQueueEntry>(await request("/manager/review-queue", { noCache: true })),
 
   expenseSplitTargets: (academicYear: string, yearBasis?: string) =>
     request(`/expense-distributions/targets${toQuery({ academicYear, yearBasis })}`, { noCache: true }),
@@ -990,6 +1046,7 @@ export const api = {
         format: "pdf",
       })}`,
     ),
+  // Backend currently returns 501 for this route; keep the helper for the future but gate UI usage.
   adminExportRollupXlsxUrl: (academicYear?: string) =>
     buildApiUrl(`/admin/reports/rollup.xlsx${toQuery({ academicYear })}`),
 };

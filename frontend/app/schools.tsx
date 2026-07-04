@@ -117,8 +117,12 @@ export default function SchoolsScreen() {
     countryId: user?.country_id ?? null,
     schoolId: null,
   };
-  const canManageManagerUsers =
-    user?.role === "manager" || can(user, "page.manage_permissions", "write", permissionScope);
+  const canManageManagerUsers = can(user, "page.manage_permissions", "write", permissionScope);
+  const canOpenReviewQueue =
+    user?.role === "manager" ||
+    user?.role === "accountant" ||
+    can(user, "page.manage_permissions", "read", permissionScope) ||
+    can(user, "page.manage_permissions", "write", permissionScope);
   const canCreateSchool =
     Boolean(user?.country_id) && can(user, "school.create", "write", permissionScope);
   const isPrincipal = user?.role === "principal";
@@ -256,16 +260,57 @@ export default function SchoolsScreen() {
               onPress={() => router.push("/admin/approvals")}
               testID="schools-admin-approvals-link"
             />
-          </View>
-        ) : canManageManagerUsers ? (
-          <View style={styles.adminGrid}>
             <AdminTile
-              icon="people-outline"
-              title="Kullanicilar"
-              subtitle={`${user?.country_name || "Ulke"} ekipleri`}
-              onPress={() => router.push("/manager/users")}
-              testID="schools-manager-users-link"
+              icon="speedometer-outline"
+              title="Ilerleme"
+              subtitle="Zorunlu alan kurallari"
+              onPress={() => router.push("/admin/progress")}
+              testID="schools-admin-progress-link"
             />
+            <AdminTile
+              icon="bar-chart-outline"
+              title="Raporlar"
+              subtitle="Ulke rollup"
+              onPress={() => router.push("/admin/reports")}
+              testID="schools-admin-reports-link"
+            />
+            <AdminTile
+              icon="key-outline"
+              title="Yetkiler"
+              subtitle="Kapsamli izin editoru"
+              onPress={() => router.push("/admin/manage-permissions")}
+              testID="schools-admin-permissions-link"
+            />
+          </View>
+        ) : canManageManagerUsers || canOpenReviewQueue ? (
+          <View style={styles.adminGrid}>
+            {canManageManagerUsers ? (
+              <>
+                <AdminTile
+                  icon="people-outline"
+                  title="Kullanicilar"
+                  subtitle={`${user?.country_name || "Ulke"} ekipleri`}
+                  onPress={() => router.push("/manager/users")}
+                  testID="schools-manager-users-link"
+                />
+                <AdminTile
+                  icon="key-outline"
+                  title="Yetkiler"
+                  subtitle="Ulke ve okul kapsami"
+                  onPress={() => router.push("/manager/manage-permissions")}
+                  testID="schools-manager-permissions-link"
+                />
+              </>
+            ) : null}
+            {canOpenReviewQueue ? (
+              <AdminTile
+                icon="checkmark-done-outline"
+                title="Inceleme"
+                subtitle="Modul onay kuyrugu"
+                onPress={() => router.push("/manager/review-queue")}
+                testID="schools-manager-review-link"
+              />
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -477,11 +522,14 @@ const styles = StyleSheet.create({
   roleLine: { color: colors.textDim, ...font.small, marginTop: 4 },
   adminGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
     marginTop: spacing.md,
   },
   adminTile: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "31%",
+    minWidth: 104,
     padding: spacing.md,
     backgroundColor: colors.bgElev,
     borderRadius: radius.lg,

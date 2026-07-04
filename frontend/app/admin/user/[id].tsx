@@ -270,6 +270,21 @@ export default function AdminUserDetailScreen() {
           ) : null}
         </Card>
 
+        <Card>
+          <Text style={styles.section}>Yetkiler</Text>
+          <Text style={styles.sectionSub}>
+            Okuma/yazma izinlerini ulke veya okul kapsamiyla duzenleyin.
+          </Text>
+          <Button
+            label="Yetki Editorunu Ac"
+            icon="key-outline"
+            variant="secondary"
+            onPress={() => router.push({ pathname: "/admin/manage-permissions", params: { userId: String(user.id) } })}
+            style={{ marginTop: spacing.md }}
+            testID="admin-user-permissions-link"
+          />
+        </Card>
+
         {/* Assign country */}
         {countries.length > 0 ? (
           <Card>

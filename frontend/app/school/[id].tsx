@@ -192,6 +192,10 @@ export default function SchoolScreen() {
   const canEditScenario = Boolean(id) && can(user, "scenario.plan_edit", "write", permissionScope);
   const canDeleteScenario = Boolean(id) && can(user, "scenario.delete", "write", permissionScope);
   const canExpenseSplit = Boolean(id) && can(user, "scenario.expense_split", "write", permissionScope);
+  const canManageAssignments =
+    Boolean(id) &&
+    user?.role !== "admin" &&
+    can(user, "page.manage_permissions", "write", permissionScope);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -370,6 +374,16 @@ export default function SchoolScreen() {
             {school?.name || "Yukleniyor..."}
           </Text>
         </View>
+        {canManageAssignments ? (
+          <Pressable
+            onPress={() => router.push({ pathname: "/manager/schools/[id]/assignments", params: { id: String(id) } })}
+            hitSlop={10}
+            style={styles.headerActionBtn}
+            testID="school-manager-assignments-link"
+          >
+            <Ionicons name="person-add-outline" size={18} color={colors.textDim} />
+          </Pressable>
+        ) : null}
       </View>
 
       {loading ? (
@@ -719,6 +733,16 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElev,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerActionBtn: {
     width: 40,
     height: 40,
     borderRadius: radius.md,

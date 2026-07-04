@@ -20,6 +20,7 @@ import { AdminUser, api } from "@/src/api/client";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, Input, Row } from "@/src/ui/components";
 import { useAuth } from "@/src/auth/AuthContext";
+import { can } from "@/src/auth/permissions";
 
 const ROLES = [
   { key: "principal", label: "Okul Müdürü" },
@@ -28,7 +29,12 @@ const ROLES = [
 ];
 
 function roleLabel(role?: string) {
+  if (role === "accountant") return "Muhasebeci";
   return ROLES.find((r) => r.key === role)?.label || role || "-";
+}
+
+function editableManagerRole(role?: string | null) {
+  return ROLES.some((item) => item.key === role);
 }
 
 export default function ManagerUserDetailScreen() {
@@ -46,8 +52,16 @@ export default function ManagerUserDetailScreen() {
   const [resetting, setResetting] = useState(false);
   const [tempPw, setTempPw] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const canManagePermissions = can(me, "page.manage_permissions", "write", {
+    countryId: me?.country_id ?? null,
+    schoolId: null,
+  });
 
   const load = useCallback(async () => {
+    if (!canManagePermissions) {
+      setLoading(false);
+      return;
+    }
     setErr("");
     try {
       const res = await api.managerListUsers();
@@ -60,7 +74,7 @@ export default function ManagerUserDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [canManagePermissions, id]);
 
   useEffect(() => {
     load();
@@ -73,6 +87,10 @@ export default function ManagerUserDetailScreen() {
 
   async function changeRole(newRole: string) {
     if (!user || user.role === newRole) return;
+    if (!editableManagerRole(user.role) || !editableManagerRole(newRole)) {
+      setErr("Bu kullanicinin rolu manager ekranindan degistirilemez.");
+      return;
+    }
     setSavingRole(true);
     setErr("");
     try {
@@ -131,6 +149,32 @@ export default function ManagerUserDetailScreen() {
     );
   }
 
+  if (!canManagePermissions) {
+    return (
+      <SafeAreaView style={styles.safe} edges={["top"]} testID="manager-user-denied">
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/schools")}
+            hitSlop={12}
+            style={styles.backBtn}
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerLabel}>KULLANICI</Text>
+            <Text style={styles.headerTitle}>Yetki Yok</Text>
+          </View>
+        </View>
+        <View style={{ padding: spacing.lg }}>
+          <View style={styles.errBox}>
+            <Ionicons name="lock-closed-outline" size={16} color={colors.warn} />
+            <Text style={styles.errText}>Bu ekran icin page.manage_permissions yazma yetkisi gerekir.</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!user) {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -147,7 +191,7 @@ export default function ManagerUserDetailScreen() {
   }
 
   const emailDirty = emailDraft.trim() !== user.email && emailDraft.trim().length > 0;
-
+  const roleReadOnly = !editableManagerRole(user.role);
   return (
     <SafeAreaView style={styles.safe} edges={["top"]} testID="manager-user-detail-screen">
       <View style={styles.header}>
@@ -217,17 +261,28 @@ export default function ManagerUserDetailScreen() {
           <Text style={styles.sectionSub}>
             Müdürler bu rolleri atayabilir: Kullanıcı, İK, Okul Müdürü
           </Text>
-          <View style={styles.chipGroup}>
-            {ROLES.map((r) => (
-              <Chip
-                key={r.key}
-                label={r.label}
-                active={user.role === r.key}
-                onPress={() => changeRole(r.key)}
-                testID={`manager-user-role-${r.key}`}
-              />
-            ))}
-          </View>
+          {roleReadOnly ? (
+            <>
+              <View style={styles.chipGroup}>
+                <Chip label={roleLabel(user.role)} active />
+              </View>
+              <Text style={styles.readOnlyHint}>
+                Bu rol manager ekranindan degistirilemez; backend yalnizca Kullanici, IK ve Okul Muduru rol gecislerini destekler.
+              </Text>
+            </>
+          ) : (
+            <View style={styles.chipGroup}>
+              {ROLES.map((r) => (
+                <Chip
+                  key={r.key}
+                  label={r.label}
+                  active={user.role === r.key}
+                  onPress={() => changeRole(r.key)}
+                  testID={`manager-user-role-${r.key}`}
+                />
+              ))}
+            </View>
+          )}
           {savingRole ? (
             <View style={styles.miniLoad}>
               <ActivityIndicator color={colors.primary} size="small" />
@@ -235,6 +290,22 @@ export default function ManagerUserDetailScreen() {
             </View>
           ) : null}
         </Card>
+
+        {canManagePermissions ? (
+          <Card>
+            <Text style={styles.section}>Yetkiler</Text>
+            <Text style={styles.sectionSub}>
+              Kullanici izinlerini ulke veya okul kapsaminda duzenle
+            </Text>
+            <Button
+              label="Yetki Editorunu Ac"
+              icon="key-outline"
+              variant="secondary"
+              onPress={() => router.push({ pathname: "/manager/manage-permissions", params: { userId: String(user.id) } })}
+              testID="manager-user-permissions-link"
+            />
+          </Card>
+        ) : null}
 
         {/* Change email */}
         <Card>
@@ -379,6 +450,7 @@ const styles = StyleSheet.create({
   section: { ...font.h3, color: colors.text },
   sectionSub: { ...font.small, color: colors.textDim, marginTop: 4, marginBottom: spacing.md },
   chipGroup: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  readOnlyHint: { color: colors.warn, ...font.small, marginTop: spacing.sm },
   miniLoad: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: spacing.md },
   miniLoadText: { color: colors.textDim, ...font.small },
   errBox: {
