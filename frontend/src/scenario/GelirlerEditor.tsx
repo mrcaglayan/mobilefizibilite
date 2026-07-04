@@ -157,6 +157,10 @@ export function GelirlerEditor({
     onDirtyPathsChange([]);
   }, [inputs?.temelBilgiler?.kademeler, onDirtyPathsChange, planningGrades.y1, value]);
 
+  React.useEffect(() => {
+    onDirtyPathsChange(dirtyPaths);
+  }, [dirtyPaths, onDirtyPathsChange]);
+
   const programType = normalizeProgramType(inputs, scenario);
   const kademeConfig = React.useMemo(
     () => normalizeGelirlerKademeConfig(inputs?.temelBilgiler?.kademeler),
@@ -186,7 +190,6 @@ export function GelirlerEditor({
   function markDirty(path: readonly PathToken[]) {
     setDirtyPaths((prev) => {
       const next = Array.from(new Set([...prev, dirtyPath(path)]));
-      onDirtyPathsChange(next);
       return next;
     });
   }

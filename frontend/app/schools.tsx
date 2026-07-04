@@ -21,6 +21,7 @@ import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { BottomSheet } from "@/src/ui/BottomSheet";
 import { BrandMark, Button, Card, EmptyState, Input, ProgressBar } from "@/src/ui/components";
+import { BulkSendSheet, CountryBatchSendSheet } from "@/src/operations/Pr08Sheets";
 
 function AdminTile({
   icon,
@@ -109,6 +110,8 @@ export default function SchoolsScreen() {
   const [newSchoolName, setNewSchoolName] = useState("");
   const [actionErr, setActionErr] = useState("");
   const [savingSchool, setSavingSchool] = useState(false);
+  const [bulkSendOpen, setBulkSendOpen] = useState(false);
+  const [countryBatchOpen, setCountryBatchOpen] = useState(false);
 
   const permissionScope = {
     countryId: user?.country_id ?? null,
@@ -119,6 +122,7 @@ export default function SchoolsScreen() {
   const canCreateSchool =
     Boolean(user?.country_id) && can(user, "school.create", "write", permissionScope);
   const isPrincipal = user?.role === "principal";
+  const canSendCountryOps = user?.role === "manager" || user?.role === "accountant";
 
   const load = useCallback(async () => {
     setErr("");
@@ -273,6 +277,27 @@ export default function SchoolsScreen() {
             {isPrincipal ? "Size atanmis kampusler" : "Ulkenizdeki aktif kampusler"}
           </Text>
         </View>
+        {canSendCountryOps ? (
+          <View style={styles.sectionActions}>
+            <Button
+              label="Toplu"
+              icon="paper-plane-outline"
+              small
+              variant="secondary"
+              onPress={() => setBulkSendOpen(true)}
+              disabled={!schools.length}
+              testID="schools-bulk-send-button"
+            />
+            <Button
+              label="Paket"
+              icon="albums-outline"
+              small
+              onPress={() => setCountryBatchOpen(true)}
+              disabled={!schools.length || !user?.country_id}
+              testID="schools-country-batch-button"
+            />
+          </View>
+        ) : null}
         {canCreateSchool ? (
           <Pressable
             onPress={() => {
@@ -406,6 +431,20 @@ export default function SchoolsScreen() {
           />
         </ScrollView>
       </BottomSheet>
+
+      <BulkSendSheet
+        visible={bulkSendOpen}
+        schoolIds={schools.map((school) => school.id)}
+        onClose={() => setBulkSendOpen(false)}
+        onApplied={load}
+      />
+
+      <CountryBatchSendSheet
+        visible={countryBatchOpen}
+        countryId={user?.country_id || null}
+        onClose={() => setCountryBatchOpen(false)}
+        onSent={load}
+      />
     </SafeAreaView>
   );
 }
@@ -463,11 +502,13 @@ const styles = StyleSheet.create({
   sectionHead: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     marginTop: spacing.lg,
     marginBottom: spacing.md,
   },
+  sectionActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   sectionTitle: { color: colors.text, ...font.h3 },
   sectionSub: { color: colors.textDim, ...font.small, marginTop: 2 },
   addBtn: {

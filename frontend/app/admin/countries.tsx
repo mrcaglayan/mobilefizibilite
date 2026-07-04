@@ -32,6 +32,14 @@ export default function AdminCountriesScreen() {
   const [err, setErr] = useState("");
   const [showCreate, setShowCreate] = useState(false);
 
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/schools");
+  }, [router]);
+
   const load = useCallback(async () => {
     setErr("");
     try {
@@ -54,7 +62,7 @@ export default function AdminCountriesScreen() {
       <View style={styles.header}>
         <Pressable
           testID="admin-countries-back"
-          onPress={() => router.back()}
+          onPress={goBack}
           hitSlop={12}
           style={styles.backBtn}
         >

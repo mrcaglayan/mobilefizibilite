@@ -9,11 +9,20 @@ type AuthState = {
   bootstrapping: boolean;
   login: (email: string, password: string, remember: boolean) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<User>;
-  setSession: (session: { token?: string | null; user?: User | null }) => Promise<void>;
+  setSession: (session: { token?: string | null; user?: User | null }) => Promise<User | null>;
   logout: () => Promise<void>;
 };
 
 const Ctx = createContext<AuthState | null>(null);
+
+async function loadSessionUser(token: string, fallback?: User | null): Promise<User> {
+  try {
+    return await api.me(token);
+  } catch {
+    if (fallback) return fallback;
+    throw new Error("Session could not be loaded");
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
@@ -26,7 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (t) {
         setToken(t);
         try {
-          const me = await api.me();
+          const me = await loadSessionUser(t);
           setUser(me);
         } catch {
           await saveToken(null);
@@ -41,22 +50,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await api.login(email, password);
     await saveToken(res.token);
     setToken(res.token);
-    setUser(res.user);
-    return res.user;
+    const me = await loadSessionUser(res.token, res.user);
+    setUser(me);
+    return me;
   }, []);
 
   const setSession = useCallback(async (session: { token?: string | null; user?: User | null }) => {
-    if (!session?.token) return;
+    if (!session?.token) return null;
     await saveToken(session.token);
     setToken(session.token);
-    setUser(session.user || null);
+    const me = await loadSessionUser(session.token, session.user || null);
+    setUser(me);
+    return me;
   }, []);
 
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       const res = await api.changePassword({ currentPassword, newPassword });
-      await setSession(res);
-      return res.user;
+      const me = await setSession(res);
+      return me || res.user;
     },
     [setSession],
   );

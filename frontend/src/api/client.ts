@@ -636,8 +636,8 @@ export const api = {
         : emailOrPayload;
     return request<LoginResponse>("/auth/login", { method: "POST", body });
   },
-  me: () => request<User>("/auth/me"),
-  getMe: () => request<User>("/auth/me"),
+  me: (token?: string | null) => request<User>("/auth/me", { token }),
+  getMe: (token?: string | null) => request<User>("/auth/me", { token }),
   changePassword: (payload: { currentPassword: string; newPassword: string }) =>
     request<LoginResponse>("/auth/change-password", { method: "POST", body: payload }),
 

@@ -21,6 +21,7 @@ import { can } from "@/src/auth/permissions";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { BottomSheet } from "@/src/ui/BottomSheet";
 import { Button, Card, Chip, EmptyState, Input, ProgressBar } from "@/src/ui/components";
+import { ExpenseDistributionSheet } from "@/src/operations/Pr08Sheets";
 
 type ScenarioForm = {
   name: string;
@@ -174,6 +175,7 @@ export default function SchoolScreen() {
   const [savingScenario, setSavingScenario] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Scenario | null>(null);
   const [deletingScenario, setDeletingScenario] = useState(false);
+  const [distributionTarget, setDistributionTarget] = useState<Scenario | null>(null);
 
   const permissionScope = useMemo(
     () => ({
@@ -189,6 +191,7 @@ export default function SchoolScreen() {
     (!schoolClosed || user?.role === "admin");
   const canEditScenario = Boolean(id) && can(user, "scenario.plan_edit", "write", permissionScope);
   const canDeleteScenario = Boolean(id) && can(user, "scenario.delete", "write", permissionScope);
+  const canExpenseSplit = Boolean(id) && can(user, "scenario.expense_split", "write", permissionScope);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -508,8 +511,21 @@ export default function SchoolScreen() {
                   ) : null}
                 </View>
 
-                {(canEditScenario || canDeleteScenario) ? (
+                {(canEditScenario || canDeleteScenario || canExpenseSplit) ? (
                   <View style={styles.actionRow}>
+                    {canExpenseSplit ? (
+                      <Button
+                        label="Gider Paylastir"
+                        icon="git-branch-outline"
+                        variant="secondary"
+                        small
+                        onPress={() => {
+                          setActionErr("");
+                          setDistributionTarget(item);
+                        }}
+                        testID={`scenario-expense-split-${item.id}`}
+                      />
+                    ) : null}
                     {canEditScenario ? (
                       <Button
                         label="Duzenle"
@@ -677,6 +693,16 @@ export default function SchoolScreen() {
           </View>
         </View>
       </BottomSheet>
+
+      <ExpenseDistributionSheet
+        visible={Boolean(distributionTarget)}
+        sourceScenario={distributionTarget}
+        sourceSchoolId={id || null}
+        sourceSchoolName={school?.name || null}
+        onClose={() => setDistributionTarget(null)}
+        onApplied={load}
+        onReverted={load}
+      />
     </SafeAreaView>
   );
 }

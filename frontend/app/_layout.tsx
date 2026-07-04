@@ -1,6 +1,6 @@
 import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { type ReactNode, useEffect } from "react";
+import { useEffect } from "react";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -28,22 +28,21 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AuthProvider>
           <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-          <ProtectedRoutes>
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.bg },
-                animation: "slide_from_right",
-              }}
-            />
-          </ProtectedRoutes>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.bg },
+              animation: "slide_from_right",
+            }}
+          />
+          <AuthRedirector />
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
 
-function ProtectedRoutes({ children }: { children: ReactNode }) {
+function AuthRedirector() {
   const { bootstrapping, token, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
@@ -70,29 +69,40 @@ function ProtectedRoutes({ children }: { children: ReactNode }) {
     }
   }, [bootstrapping, pathname, router, token, user]);
 
+  const isLogin = pathname === "/login";
+  const isProfile = pathname === "/profile";
+  const isIndex = pathname === "/";
+  const redirecting =
+    (!token && !isLogin) ||
+    (Boolean(token) && Boolean(user?.must_reset_password) && !isProfile) ||
+    (Boolean(token) && !user?.must_reset_password && (isLogin || isIndex));
+
   if (bootstrapping) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+      <View style={overlayStyle}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
-  if (!token && pathname !== "/login") {
+  if (redirecting) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+      <View style={overlayStyle}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
-  if (token && user?.must_reset_password && pathname !== "/profile") {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
-    );
-  }
-
-  return children;
+  return null;
 }
+
+const overlayStyle = {
+  position: "absolute" as const,
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+  backgroundColor: colors.bg,
+  alignItems: "center" as const,
+  justifyContent: "center" as const,
+};

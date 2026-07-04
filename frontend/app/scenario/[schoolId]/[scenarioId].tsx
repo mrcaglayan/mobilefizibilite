@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import {
   Id,
@@ -59,6 +59,16 @@ import {
   gelirlerSaveAdapter,
   GelirlerDraft,
 } from "@/src/scenario/gelirlerAdapter";
+import { DiscountsEditor } from "@/src/scenario/DiscountsEditor";
+import {
+  discountsSaveAdapter,
+  DiscountsDraft,
+} from "@/src/scenario/discountsAdapter";
+import { GiderlerEditor } from "@/src/scenario/GiderlerEditor";
+import {
+  giderlerSaveAdapter,
+  GiderlerDraft,
+} from "@/src/scenario/giderlerAdapter";
 import { KapasiteEditor } from "@/src/scenario/KapasiteEditor";
 import {
   kapasiteSaveAdapter,
@@ -69,7 +79,13 @@ import {
   temelBilgilerSaveAdapter,
   TemelBilgilerDraft,
 } from "@/src/scenario/temelBilgilerAdapter";
-import { colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
+import {
+  ScenarioDetailedReportPanel,
+  ScenarioReportPanel,
+  type ReportCurrency,
+  type ReportMode,
+} from "@/src/scenario/ReportPanels";
+import { colors, font, formatInt, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, ProgressBar, Row } from "@/src/ui/components";
 
 type ModuleKey = WorkId | "rapor" | "detayli_rapor";
@@ -101,7 +117,7 @@ type ModuleDef = {
   readResource?: string;
 };
 
-type ActionBusy = "save" | "submit" | "approve" | "revise" | "send" | null;
+type ActionBusy = "save" | "submit" | "approve" | "revise" | "send" | "calculate" | null;
 
 const MODULES: ModuleDef[] = [
   {
@@ -150,7 +166,7 @@ const MODULES: ModuleDef[] = [
     shortLabel: "Gider",
     icon: "trending-down-outline",
     workId: "giderler.isletme",
-    progressKeys: ["giderler"],
+    progressKeys: ["giderler", "discounts"],
   },
   {
     key: "rapor",
@@ -315,7 +331,6 @@ export default function ScenarioScreen() {
   const { schoolId, scenarioId } = useLocalSearchParams<{ schoolId: string; scenarioId: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const navigation = useNavigation();
   const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ModuleKey>("temel_bilgiler");
@@ -329,12 +344,19 @@ export default function ScenarioScreen() {
   const [metaWarning, setMetaWarning] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [reportRequiresCalculation, setReportRequiresCalculation] = useState(false);
+  const [reportMode, setReportMode] = useState<ReportMode>("original");
+  const [reportCurrency, setReportCurrency] = useState<ReportCurrency>("usd");
   const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [revisionComment, setRevisionComment] = useState("");
-  const [dirtyResources, setDirtyResources] = useState<string[]>([]);
+  const [dirtyPathBuckets, setDirtyPathBuckets] = useState<Record<string, string[]>>({});
 
   const progress = useMemo(() => normalizeProgress(progressRaw), [progressRaw]);
+  const dirtyResources = useMemo(() => {
+    const dirtyInputPaths = Object.values(dirtyPathBuckets).flat().map((path) => toDirtyInputPath(path));
+    return buildModifiedResourcesFromPaths(dirtyInputPaths);
+  }, [dirtyPathBuckets]);
   const scenario = context?.scenario || null;
   const inputs = context?.inputs || null;
   const locked = scenarioLocked(scenario);
@@ -352,6 +374,13 @@ export default function ScenarioScreen() {
   const visibleModules = useMemo(
     () =>
       MODULES.filter((module) => {
+        if (module.key === "giderler.isletme") {
+          return (
+            canReadWorkItem(user, "giderler.isletme", permissionScope) ||
+            can(user, "page.discounts", "read", permissionScope) ||
+            can(user, "section.discounts.discounts", "read", permissionScope)
+          );
+        }
         if (module.workId) return canReadWorkItem(user, module.workId, permissionScope);
         if (module.readResource) return can(user, module.readResource, "read", permissionScope);
         return true;
@@ -359,6 +388,10 @@ export default function ScenarioScreen() {
     [permissionScope, user],
   );
   const dirty = dirtyResources.length > 0;
+  const hasDirtyBucket = useCallback(
+    (key: string) => (dirtyPathBuckets[key] || []).length > 0,
+    [dirtyPathBuckets],
+  );
   const warnUnsavedNavigation = useCallback((message = "Once degisiklikleri kaydedin veya vazgecin.") => {
     setActionMessage(message);
   }, []);
@@ -400,11 +433,11 @@ export default function ScenarioScreen() {
     }
   }, [schoolId, scenarioId]);
 
-  const loadReport = useCallback(async () => {
+  const loadReport = useCallback(async (nextMode: ReportMode = reportMode) => {
     if (!schoolId || !scenarioId) return;
     setReportLoading(true);
     try {
-      const data = await api.getScenarioReport(schoolId, scenarioId);
+      const data = await api.getScenarioReport(schoolId, scenarioId, nextMode);
       setReport(data);
     } catch (e: any) {
       setReport({
@@ -417,17 +450,49 @@ export default function ScenarioScreen() {
     } finally {
       setReportLoading(false);
     }
-  }, [schoolId, scenarioId, scenario]);
+  }, [reportMode, schoolId, scenarioId, scenario]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    if (activeTab === "rapor" && !report && !reportLoading) {
+    if (
+      (activeTab === "rapor" || activeTab === "detayli_rapor") &&
+      !report &&
+      !reportLoading &&
+      !reportRequiresCalculation
+    ) {
       loadReport();
     }
-  }, [activeTab, loadReport, report, reportLoading]);
+  }, [activeTab, loadReport, report, reportLoading, reportRequiresCalculation]);
+
+  const handleReportModeChange = useCallback((nextMode: ReportMode) => {
+    setReportMode(nextMode);
+    setReport(null);
+  }, []);
+
+  const handleCalculateReport = useCallback(async () => {
+    if (!schoolId || !scenarioId) return;
+    if (dirty) {
+      setActionMessage("Hesaplamadan once degisiklikleri kaydedin veya vazgecin.");
+      return;
+    }
+    setActionBusy("calculate");
+    setActionMessage("");
+    try {
+      const result = await api.calculateScenario(schoolId, scenarioId);
+      setReportMode("original");
+      setReport(result.report);
+      setReportRequiresCalculation(false);
+      await load();
+      setActionMessage("Rapor hesaplandi.");
+    } catch (e: any) {
+      setActionMessage(e?.message || "Rapor hesaplanamadi.");
+    } finally {
+      setActionBusy(null);
+    }
+  }, [dirty, load, scenarioId, schoolId]);
 
   useEffect(() => {
     if (visibleModules.length && !visibleModules.some((module) => module.key === activeTab)) {
@@ -447,15 +512,6 @@ export default function ScenarioScreen() {
     });
     return () => subscription.remove();
   }, [dirty, warnUnsavedNavigation]);
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
-      if (!dirty) return;
-      event.preventDefault();
-      warnUnsavedNavigation();
-    });
-    return unsubscribe;
-  }, [dirty, navigation, warnUnsavedNavigation]);
 
   useEffect(() => {
     if (
@@ -597,9 +653,14 @@ export default function ScenarioScreen() {
     }
   }, [activeModule.workId, canSubmitActive, load, scenarioId, schoolId]);
 
-  const handleModuleDirtyPathsChange = useCallback((paths: string[]) => {
-    const dirtyInputPaths = paths.map((path) => toDirtyInputPath(path));
-    setDirtyResources(buildModifiedResourcesFromPaths(dirtyInputPaths));
+  const handleModuleDirtyPathsChange = useCallback((paths: string[], source = "active-module") => {
+    const uniquePaths = Array.from(new Set(paths.filter(Boolean)));
+    setDirtyPathBuckets((prev) => {
+      const next = { ...prev };
+      if (uniquePaths.length) next[source] = uniquePaths;
+      else delete next[source];
+      return next;
+    });
   }, []);
 
   const handleSaveTemelBilgiler = useCallback(
@@ -615,7 +676,8 @@ export default function ScenarioScreen() {
           draft,
           currentInputs: inputs,
         });
-        setDirtyResources([]);
+        setReport(null);
+        setReportRequiresCalculation(true);
         await load();
         setActionMessage("Temel Bilgiler kaydedildi.");
       } catch (e: any) {
@@ -641,7 +703,8 @@ export default function ScenarioScreen() {
           draft,
           currentInputs: inputs,
         });
-        setDirtyResources([]);
+        setReport(null);
+        setReportRequiresCalculation(true);
         await load();
         setActionMessage("Kapasite kaydedildi.");
       } catch (e: any) {
@@ -672,7 +735,8 @@ export default function ScenarioScreen() {
         if (draft.normDirtyPaths.length) {
           await api.saveNormConfig(schoolId, scenarioId, draft.norm);
         }
-        setDirtyResources([]);
+        setReport(null);
+        setReportRequiresCalculation(true);
         await load();
         setActionMessage("Norm kaydedildi.");
       } catch (e: any) {
@@ -698,7 +762,8 @@ export default function ScenarioScreen() {
           draft,
           currentInputs: inputs,
         });
-        setDirtyResources([]);
+        setReport(null);
+        setReportRequiresCalculation(true);
         await load();
         setActionMessage("IK kaydedildi.");
       } catch (e: any) {
@@ -724,7 +789,8 @@ export default function ScenarioScreen() {
           draft,
           currentInputs: inputs,
         });
-        setDirtyResources([]);
+        setReport(null);
+        setReportRequiresCalculation(true);
         await load();
         setActionMessage("Gelirler kaydedildi.");
       } catch (e: any) {
@@ -735,6 +801,70 @@ export default function ScenarioScreen() {
       }
     },
     [inputs, load, scenarioId, schoolId],
+  );
+
+  const handleSaveGiderler = useCallback(
+    async (draft: GiderlerDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      if (hasDirtyBucket("discounts")) {
+        const message = "Once indirim degisikliklerini kaydedin veya vazgecin.";
+        setActionMessage(message);
+        throw new Error(message);
+      }
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        await saveScenarioModule({
+          schoolId,
+          scenarioId,
+          adapter: giderlerSaveAdapter,
+          draft,
+          currentInputs: inputs,
+        });
+        setReport(null);
+        setReportRequiresCalculation(true);
+        await load();
+        setActionMessage("Giderler kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Giderler kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [hasDirtyBucket, inputs, load, scenarioId, schoolId],
+  );
+
+  const handleSaveDiscounts = useCallback(
+    async (draft: DiscountsDraft) => {
+      if (!schoolId || !scenarioId || !inputs) return;
+      if (hasDirtyBucket("giderler")) {
+        const message = "Once gider degisikliklerini kaydedin veya vazgecin.";
+        setActionMessage(message);
+        throw new Error(message);
+      }
+      setActionBusy("save");
+      setActionMessage("");
+      try {
+        await saveScenarioModule({
+          schoolId,
+          scenarioId,
+          adapter: discountsSaveAdapter,
+          draft,
+          currentInputs: inputs,
+        });
+        setReport(null);
+        setReportRequiresCalculation(true);
+        await load();
+        setActionMessage("Indirimler kaydedildi.");
+      } catch (e: any) {
+        setActionMessage(e?.message || "Indirimler kaydedilemedi.");
+        throw e;
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [hasDirtyBucket, inputs, load, scenarioId, schoolId],
   );
 
   const handleReviewActive = useCallback(
@@ -805,7 +935,7 @@ export default function ScenarioScreen() {
             {scenario?.name || "Senaryo"}
           </Text>
           <Text style={styles.headerSub} numberOfLines={1}>
-            {scenario?.academic_year || "-"} · {resolveCurrency(scenario)}
+            {scenario?.academic_year || "-"} / {resolveCurrency(scenario)}
           </Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusMeta.bg, borderColor: statusMeta.border }]}>
@@ -878,14 +1008,37 @@ export default function ScenarioScreen() {
               {!visibleModules.length ? (
                 <NoAccessPanel />
               ) : activeTab === "rapor" ? (
-                <ReportPanel
+                <ScenarioReportPanel
                   report={report}
                   loading={reportLoading}
                   onReload={loadReport}
+                  onCalculate={handleCalculateReport}
+                  calculating={actionBusy === "calculate"}
+                  requiresCalculation={reportRequiresCalculation}
                   currency={resolveCurrency(scenario)}
+                  scenario={scenario}
+                  schoolId={schoolId}
+                  scenarioId={scenarioId}
+                  mode={reportMode}
+                  onModeChange={handleReportModeChange}
+                  reportCurrency={reportCurrency}
+                  onReportCurrencyChange={setReportCurrency}
                 />
               ) : activeTab === "detayli_rapor" ? (
-                <DetailedReportPanel />
+                <ScenarioDetailedReportPanel
+                  report={report}
+                  loading={reportLoading}
+                  onReload={loadReport}
+                  onCalculate={handleCalculateReport}
+                  calculating={actionBusy === "calculate"}
+                  requiresCalculation={reportRequiresCalculation}
+                  currency={resolveCurrency(scenario)}
+                  scenario={scenario}
+                  mode={reportMode}
+                  onModeChange={handleReportModeChange}
+                  reportCurrency={reportCurrency}
+                  onReportCurrencyChange={setReportCurrency}
+                />
               ) : (
                 <ModulePanel
                   module={activeModule}
@@ -902,6 +1055,8 @@ export default function ScenarioScreen() {
                   savingNorm={actionBusy === "save"}
                   savingIk={actionBusy === "save"}
                   savingGelirler={actionBusy === "save"}
+                  savingGiderler={actionBusy === "save"}
+                  savingDiscounts={actionBusy === "save"}
                   permissionScope={permissionScope}
                   onModuleDirtyPathsChange={handleModuleDirtyPathsChange}
                   onSaveTemelBilgiler={handleSaveTemelBilgiler}
@@ -909,6 +1064,8 @@ export default function ScenarioScreen() {
                   onSaveNorm={handleSaveNorm}
                   onSaveIk={handleSaveIk}
                   onSaveGelirler={handleSaveGelirler}
+                  onSaveGiderler={handleSaveGiderler}
+                  onSaveDiscounts={handleSaveDiscounts}
                 />
               )}
             </View>
@@ -1101,6 +1258,8 @@ function ModulePanel({
   savingNorm,
   savingIk,
   savingGelirler,
+  savingGiderler,
+  savingDiscounts,
   permissionScope,
   onModuleDirtyPathsChange,
   onSaveTemelBilgiler,
@@ -1108,6 +1267,8 @@ function ModulePanel({
   onSaveNorm,
   onSaveIk,
   onSaveGelirler,
+  onSaveGiderler,
+  onSaveDiscounts,
 }: {
   module: ModuleDef;
   context: ScenarioContext | null;
@@ -1123,13 +1284,17 @@ function ModulePanel({
   savingNorm: boolean;
   savingIk: boolean;
   savingGelirler: boolean;
+  savingGiderler: boolean;
+  savingDiscounts: boolean;
   permissionScope: PermissionScope;
-  onModuleDirtyPathsChange: (paths: string[]) => void;
+  onModuleDirtyPathsChange: (paths: string[], source?: string) => void;
   onSaveTemelBilgiler: (draft: TemelBilgilerDraft) => Promise<void>;
   onSaveKapasite: (draft: KapasiteDraft) => Promise<void>;
   onSaveNorm: (draft: NormDraft) => Promise<void>;
   onSaveIk: (draft: IkDraft) => Promise<void>;
   onSaveGelirler: (draft: GelirlerDraft) => Promise<void>;
+  onSaveGiderler: (draft: GiderlerDraft) => Promise<void>;
+  onSaveDiscounts: (draft: DiscountsDraft) => Promise<void>;
 }) {
   const moduleProgress = progressForModule(module, progress);
   const workMeta = workStateMeta(workItem?.state);
@@ -1139,7 +1304,8 @@ function ModulePanel({
     module.key === "kapasite" ||
     module.key === "norm.ders_dagilimi" ||
     module.key === "ik.local_staff" ||
-    module.key === "gelirler.unit_fee";
+    module.key === "gelirler.unit_fee" ||
+    module.key === "giderler.isletme";
   const lockReason = scenarioLocked
     ? "Senaryo kilitli"
     : workMeta.locked
@@ -1150,6 +1316,24 @@ function ModulePanel({
           ? "Degisiklikleri kaydetmeden modul degistirilemez"
           : "Editor port edilene kadar salt okunur; tamamlanan modul footer'dan gonderilebilir");
   const canEditModule = canWrite && !scenarioLocked && !workMeta.locked;
+  const canWriteDiscounts =
+    can(user, "section.discounts.discounts", "write", permissionScope) ||
+    can(user, "page.discounts", "write", permissionScope);
+  const canEditDiscounts = canWriteDiscounts && !scenarioLocked && !workMeta.locked;
+  const discountsLockReason = scenarioLocked
+    ? "Senaryo kilitli"
+    : workMeta.locked
+      ? "Modul inceleme/onay durumunda"
+      : !canWriteDiscounts
+        ? "Indirimler icin yazma yetkiniz yok"
+        : "Indirim degisiklikleri kaydedilmeden modul degistirilemez";
+  const onTemelDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "temel_bilgiler"), [onModuleDirtyPathsChange]);
+  const onKapasiteDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "kapasite"), [onModuleDirtyPathsChange]);
+  const onNormDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "norm"), [onModuleDirtyPathsChange]);
+  const onIkDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "ik"), [onModuleDirtyPathsChange]);
+  const onGelirlerDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "gelirler"), [onModuleDirtyPathsChange]);
+  const onGiderlerDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "giderler"), [onModuleDirtyPathsChange]);
+  const onDiscountsDirty = React.useCallback((paths: string[]) => onModuleDirtyPathsChange(paths, "discounts"), [onModuleDirtyPathsChange]);
 
   return (
     <>
@@ -1216,7 +1400,7 @@ function ModulePanel({
           canEdit={canEditModule}
           disabledReason={lockReason}
           saving={savingTemelBilgiler}
-          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onDirtyPathsChange={onTemelDirty}
           onSave={onSaveTemelBilgiler}
         />
       ) : module.key === "kapasite" ? (
@@ -1228,7 +1412,7 @@ function ModulePanel({
           canEdit={canEditModule}
           disabledReason={lockReason}
           saving={savingKapasite}
-          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onDirtyPathsChange={onKapasiteDirty}
           onSave={onSaveKapasite}
         />
       ) : module.key === "norm.ders_dagilimi" ? (
@@ -1240,7 +1424,7 @@ function ModulePanel({
           canEditNormConfig={canEditModule && can(user, "page.norm", "write", permissionScope)}
           disabledReason={lockReason}
           saving={savingNorm}
-          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onDirtyPathsChange={onNormDirty}
           onSave={onSaveNorm}
         />
       ) : module.key === "ik.local_staff" ? (
@@ -1252,7 +1436,7 @@ function ModulePanel({
           canEdit={canEditModule}
           disabledReason={lockReason}
           saving={savingIk}
-          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onDirtyPathsChange={onIkDirty}
           onSave={onSaveIk}
         />
       ) : module.key === "gelirler.unit_fee" ? (
@@ -1264,9 +1448,34 @@ function ModulePanel({
           canEdit={canEditModule}
           disabledReason={lockReason}
           saving={savingGelirler}
-          onDirtyPathsChange={onModuleDirtyPathsChange}
+          onDirtyPathsChange={onGelirlerDirty}
           onSave={onSaveGelirler}
         />
+      ) : module.key === "giderler.isletme" ? (
+        <>
+          <GiderlerEditor
+            value={context?.inputs?.giderler}
+            inputs={context?.inputs || null}
+            scenario={context?.scenario || null}
+            currencyCode={resolveCurrency(context?.scenario || null)}
+            canEdit={canEditModule}
+            disabledReason={lockReason}
+            saving={savingGiderler}
+            onDirtyPathsChange={onGiderlerDirty}
+            onSave={onSaveGiderler}
+          />
+          <DiscountsEditor
+            value={context?.inputs?.discounts}
+            inputs={context?.inputs || null}
+            scenario={context?.scenario || null}
+            currencyCode={resolveCurrency(context?.scenario || null)}
+            canEdit={canEditDiscounts}
+            disabledReason={discountsLockReason}
+            saving={savingDiscounts}
+            onDirtyPathsChange={onDiscountsDirty}
+            onSave={onSaveDiscounts}
+          />
+        </>
       ) : (
         <ModuleReadOnlySummary module={module} context={context} />
       )}
@@ -1377,94 +1586,6 @@ function ModuleReadOnlySummary({ module, context }: { module: ModuleDef; context
   }
 
   return null;
-}
-
-function ReportPanel({
-  report,
-  loading,
-  onReload,
-  currency,
-}: {
-  report: Report | null;
-  loading: boolean;
-  onReload: () => void;
-  currency: string;
-}) {
-  if (loading) {
-    return (
-      <Card>
-        <View style={styles.centerPad}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={styles.emptyText}>Rapor yukleniyor...</Text>
-        </View>
-      </Card>
-    );
-  }
-
-  if (!report) {
-    return (
-      <Card>
-        <View style={styles.centerPad}>
-          <Ionicons name="pie-chart-outline" size={30} color={colors.textDim} />
-          <Text style={styles.sectionTitle}>Rapor Durumu</Text>
-          <Text style={styles.emptyText}>Rapor ozeti henuz yuklenmedi.</Text>
-          <Button label="Raporu Yukle" icon="refresh-outline" variant="secondary" onPress={onReload} />
-        </View>
-      </Card>
-    );
-  }
-
-  if (report.disabledMessage) {
-    return (
-      <Card>
-        <View style={styles.centerPad}>
-          <Ionicons name="alert-circle-outline" size={30} color={colors.warn} />
-          <Text style={styles.sectionTitle}>Rapor Kullanilamiyor</Text>
-          <Text style={styles.emptyText}>{report.disabledMessage}</Text>
-          <Button label="Tekrar Dene" icon="refresh-outline" variant="secondary" onPress={onReload} />
-        </View>
-      </Card>
-    );
-  }
-
-  const cur = report.currency || currency;
-  const kpis = report.kpis || {};
-  return (
-    <>
-      <Card>
-        <Text style={styles.sectionTitle}>Rapor Ozeti</Text>
-        <Text style={styles.sectionSub}>
-          {report.cached ? "Cache sonucu" : "Guncel sonuc"} · {formatDate(report.calculatedAt)}
-        </Text>
-        <View style={{ marginTop: spacing.sm }}>
-          <Row label="Toplam gelir" value={formatMoney(num(kpis.toplamGelir), cur)} />
-          <Row label="Toplam gider" value={formatMoney(num(kpis.toplamGider), cur)} />
-          <Row label="Faaliyet kari" value={formatMoney(num(kpis.faaliyetKari), cur)} />
-          <Row label="Kar marji" value={formatPct(num(kpis.karMarji))} />
-        </View>
-      </Card>
-      <Card>
-        <Text style={styles.sectionTitle}>Rapor Notu</Text>
-        <Text style={styles.emptyText}>
-          Detayli tablo, export ve dagitilmis rapor akislari PR 07 ve PR 08 kapsaminda port edilecek.
-        </Text>
-      </Card>
-    </>
-  );
-}
-
-function DetailedReportPanel() {
-  return (
-    <Card testID="detailed-report-readonly">
-      <View style={styles.centerPad}>
-        <Ionicons name="document-outline" size={30} color={colors.textDim} />
-        <Text style={styles.sectionTitle}>Detayli Rapor</Text>
-        <Text style={styles.emptyText}>
-          Bu sekme PR 03A'da yalnizca rota ve durum yeri olarak acildi. Detayli rapor tablolari PR 07'de port edilecek.
-        </Text>
-      </View>
-    </Card>
-  );
 }
 
 const styles = StyleSheet.create({

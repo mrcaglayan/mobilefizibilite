@@ -180,6 +180,10 @@ export function TemelBilgilerEditor({
     onDirtyPathsChange([]);
   }, [onDirtyPathsChange, value]);
 
+  React.useEffect(() => {
+    onDirtyPathsChange(dirtyPaths);
+  }, [dirtyPaths, onDirtyPathsChange]);
+
   const baseYear = academicBaseYear(scenario);
   const feeParamRows = React.useMemo(() => buildFeeParamRows(baseYear), [baseYear]);
   const programType = normalizeProgramType(getDraft(draft, ["programType"], scenario?.program_type || "local"));
@@ -193,7 +197,6 @@ export function TemelBilgilerEditor({
   function markDirty(path: readonly PathToken[]) {
     setDirtyPaths((prev) => {
       const next = Array.from(new Set([...prev, dirtyPath(path)]));
-      onDirtyPathsChange(next);
       return next;
     });
   }

@@ -198,6 +198,10 @@ export function KapasiteEditor({
     onDirtyPathsChange([]);
   }, [onDirtyPathsChange, value]);
 
+  React.useEffect(() => {
+    onDirtyPathsChange(dirtyPaths);
+  }, [dirtyPaths, onDirtyPathsChange]);
+
   const kademeConfig = React.useMemo(
     () => normalizeKademeConfig(inputs?.temelBilgiler?.kademeler),
     [inputs?.temelBilgiler?.kademeler],
@@ -230,7 +234,6 @@ export function KapasiteEditor({
   function markDirty(paths: readonly PathToken[][]) {
     setDirtyPaths((prev) => {
       const next = Array.from(new Set([...prev, ...paths.map(dirtyPath)]));
-      onDirtyPathsChange(next);
       return next;
     });
   }

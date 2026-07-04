@@ -273,6 +273,10 @@ export function IkEditor({
     onDirtyPathsChange([]);
   }, [inputs?.temelBilgiler, onDirtyPathsChange, value]);
 
+  React.useEffect(() => {
+    onDirtyPathsChange(dirtyPaths);
+  }, [dirtyPaths, onDirtyPathsChange]);
+
   const levels = React.useMemo(() => visibleLevels(inputs, scenario), [inputs, scenario]);
   const computedByYear = React.useMemo(
     () => ({
@@ -287,7 +291,6 @@ export function IkEditor({
   function markDirty(paths: readonly PathToken[][]) {
     setDirtyPaths((prev) => {
       const next = Array.from(new Set([...prev, ...paths.map(dirtyPath)]));
-      onDirtyPathsChange(next);
       return next;
     });
   }
