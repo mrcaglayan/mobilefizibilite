@@ -6,10 +6,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { can } from "@/src/auth/permissions";
 import { useAuth } from "@/src/auth/AuthContext";
-import { alpha, font, radius, spacing } from "@/src/theme";
+import { alpha, font, radius, shadow, spacing } from "@/src/theme";
 import { useAppTheme } from "@/src/theme-provider";
 
-type NavKey = "schools" | "review" | "users" | "permissions" | "settings";
+type NavKey = "schools" | "review" | "users" | "permissions" | "reports" | "settings";
 
 type NavItem = {
   key: NavKey;
@@ -21,9 +21,31 @@ type NavItem = {
 function activeKeyFromPath(pathname: string): NavKey {
   if (pathname.startsWith("/settings") || pathname.startsWith("/profile")) return "settings";
   if (pathname.includes("/review-queue") || pathname.includes("/approvals")) return "review";
+  if (pathname.includes("/assignments")) return "permissions";
   if (pathname.includes("/manage-permissions")) return "permissions";
+  if (pathname.includes("/reports")) return "reports";
   if (pathname.includes("/users") || pathname.includes("/user/")) return "users";
   return "schools";
+}
+
+function shouldShowPersistentNav(pathname: string) {
+  if (pathname === "/" || pathname === "/login" || pathname === "/profile") return false;
+  if (pathname === "/schools" || pathname === "/settings") return true;
+  if (pathname === "/manager/users" || pathname.startsWith("/manager/user/")) return true;
+  if (pathname === "/manager/review-queue" || pathname === "/manager/manage-permissions") return true;
+  if (pathname.startsWith("/manager/schools/") && pathname.endsWith("/assignments")) return true;
+  if (pathname === "/admin/users" || pathname.startsWith("/admin/user/")) return true;
+  if (
+    pathname === "/admin/approvals" ||
+    pathname === "/admin/manage-permissions" ||
+    pathname === "/admin/progress" ||
+    pathname === "/admin/reports"
+  ) {
+    return true;
+  }
+  if (pathname.startsWith("/admin/schools/") && pathname.endsWith("/assignments")) return true;
+  if (pathname.startsWith("/school/")) return true;
+  return false;
 }
 
 export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
@@ -58,6 +80,7 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
 
     if (user?.role === "admin") {
       next.push({ key: "users", label: "Kullanıcılar", icon: "people-outline", href: "/admin/users" });
+      next.push({ key: "reports", label: "Raporlar", icon: "bar-chart-outline", href: "/admin/reports" });
       next.push({ key: "permissions", label: "Yetkiler", icon: "key-outline", href: "/admin/manage-permissions" });
     } else if (canManagePermissions) {
       next.push({ key: "users", label: "Kullanıcılar", icon: "people-outline", href: "/manager/users" });
@@ -67,6 +90,7 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
     next.push({ key: "settings", label: "Ayarlar", icon: "settings-outline", href: "/settings" });
 
     if (next.length > 5) {
+      // Keep the primary daily tabs visible; permissions remain reachable from user/detail screens.
       return next.filter((item) => item.key !== "permissions");
     }
     return next;
@@ -80,9 +104,10 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
         styles.wrap,
         {
           paddingBottom: Math.max(insets.bottom, spacing.sm),
-          backgroundColor: isDark ? alpha(colors.bgElev, 0.96) : alpha(colors.bgElev, 0.98),
+          backgroundColor: isDark ? alpha(colors.bgElev, 0.96) : colors.bgElev,
           borderTopColor: colors.border,
         },
+        !isDark && shadow.nav,
       ]}
     >
       {items.map((item) => {
@@ -91,7 +116,7 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
           <Pressable
             key={item.key}
             onPress={() => {
-              if (pathname !== item.href) router.push(item.href as any);
+              if (pathname !== item.href) router.replace(item.href as any);
             }}
             style={({ pressed }) => [
               styles.item,
@@ -102,7 +127,10 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
             <View
               style={[
                 styles.iconWrap,
-                active && { backgroundColor: alpha(colors.primary, 0.18) },
+                {
+                  backgroundColor: active ? alpha(colors.primary, 0.12) : "transparent",
+                  borderColor: active ? alpha(colors.primary, 0.2) : "transparent",
+                },
               ]}
             >
               <Ionicons
@@ -114,7 +142,10 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
             <Text
               style={[
                 styles.label,
-                { color: active ? colors.primary : colors.textMuted },
+                {
+                  color: active ? colors.primary : colors.textMuted,
+                  fontWeight: active ? "800" : "700",
+                },
               ]}
               numberOfLines={1}
             >
@@ -127,28 +158,37 @@ export function AppBottomNav({ activeKey }: { activeKey?: NavKey }) {
   );
 }
 
+export function PersistentBottomNav() {
+  const pathname = usePathname();
+  const { token, user } = useAuth();
+
+  if (!token || user?.must_reset_password || !shouldShowPersistentNav(pathname)) return null;
+  return <AppBottomNav />;
+}
+
 const styles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
-    paddingTop: spacing.sm,
-    paddingHorizontal: spacing.xs,
+    paddingTop: 9,
+    paddingHorizontal: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   item: {
     flex: 1,
-    minHeight: 54,
+    minHeight: 58,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
+    gap: 4,
   },
   iconWrap: {
-    width: 34,
-    height: 28,
+    width: 42,
+    height: 30,
     borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  label: { ...font.tiny, fontWeight: "700", maxWidth: 74 },
+  label: { ...font.tiny, maxWidth: 82 },
 });

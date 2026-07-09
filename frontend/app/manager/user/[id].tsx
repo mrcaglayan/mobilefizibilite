@@ -17,7 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { AdminUser, api } from "@/src/api/client";
-import { colors, font, radius, spacing } from "@/src/theme";
+import { alpha, colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, Input, Row } from "@/src/ui/components";
 import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
@@ -237,11 +237,11 @@ export default function ManagerUserDetailScreen() {
                 {user.email}
               </Text>
               <View style={styles.badges}>
-                <View style={[styles.tag, { backgroundColor: "#F5B30122", borderColor: colors.primaryDark }]}>
+                <View style={[styles.tag, { backgroundColor: alpha(colors.primary, 0.08), borderColor: alpha(colors.primary, 0.28) }]}>
                   <Text style={[styles.tagText, { color: colors.primary }]}>{roleLabel(user.role)}</Text>
                 </View>
                 {user.must_reset_password ? (
-                  <View style={[styles.tag, { backgroundColor: "#F9731622", borderColor: "#F9731655" }]}>
+                  <View style={[styles.tag, { backgroundColor: alpha(colors.warn, 0.12), borderColor: alpha(colors.warn, 0.34) }]}>
                     <Ionicons name="key-outline" size={11} color={colors.warn} />
                     <Text style={[styles.tagText, { color: colors.warn }]}>Parola sıfırlama gerekli</Text>
                   </View>
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 999,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.accent, 0.16),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -457,13 +457,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
+    backgroundColor: alpha(colors.danger, 0.1),
+    borderColor: alpha(colors.danger, 0.28),
     borderWidth: 1,
     padding: 10,
     borderRadius: radius.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  errText: { color: colors.danger, ...font.small, flex: 1 },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 999,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.primary, 0.1),
     alignItems: "center",
     justifyContent: "center",
   },

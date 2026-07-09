@@ -1,4 +1,4 @@
-// Shared design tokens. Keep `colors` as the dark fallback for legacy imports;
+// Shared design tokens. Keep `colors` as the light-first fallback for legacy imports;
 // new UI should prefer `useAppTheme()` from theme-provider.
 
 export type AppThemeMode = "light" | "dark" | "system";
@@ -44,16 +44,16 @@ export const darkColors: AppThemeColors = {
   text: "#F4F7FB",
   textDim: "#A8B3C7",
   textMuted: "#64748B",
-  primary: "#F5B301",
-  primaryDark: "#C99000",
-  primaryText: "#09111F",
-  accent: "#4C8DFF",
+  primary: "#4C8DFF",
+  primaryDark: "#1D4ED8",
+  primaryText: "#FFFFFF",
+  accent: "#F5B301",
   success: "#22C55E",
   warn: "#F97316",
   danger: "#EF4444",
   chipBg: "#16233A",
-  chipBgActive: "#F5B301",
-  chipTextActive: "#09111F",
+  chipBgActive: "#4C8DFF",
+  chipTextActive: "#FFFFFF",
   overlay: "rgba(3,7,18,0.72)",
   status: {
     notStarted: "#94A3B8",
@@ -65,36 +65,36 @@ export const darkColors: AppThemeColors = {
 };
 
 export const lightColors: AppThemeColors = {
-  bg: "#F4F6FA",
-  bgSoft: "#EEF2F7",
+  bg: "#F3F7FB",
+  bgSoft: "#EAF1F8",
   bgElev: "#FFFFFF",
-  bgElev2: "#F8FAFC",
-  border: "#E2E8F0",
-  borderStrong: "#CBD5E1",
-  text: "#0F172A",
-  textDim: "#475569",
-  textMuted: "#94A3B8",
-  primary: "#F5B301",
-  primaryDark: "#C99000",
-  primaryText: "#111827",
-  accent: "#2563EB",
+  bgElev2: "#F8FBFF",
+  border: "#DDE7F2",
+  borderStrong: "#B8C7D9",
+  text: "#122033",
+  textDim: "#5A6B82",
+  textMuted: "#91A0B4",
+  primary: "#1557B0",
+  primaryDark: "#0B47A1",
+  primaryText: "#FFFFFF",
+  accent: "#FFC400",
   success: "#16A34A",
   warn: "#EA580C",
   danger: "#DC2626",
-  chipBg: "#EEF2F7",
-  chipBgActive: "#F5B301",
-  chipTextActive: "#111827",
+  chipBg: "#EDF4FC",
+  chipBgActive: "#1557B0",
+  chipTextActive: "#FFFFFF",
   overlay: "rgba(15,23,42,0.42)",
   status: {
     notStarted: "#64748B",
     preparing: "#EA580C",
-    review: "#2563EB",
+    review: "#1557B0",
     complete: "#16A34A",
     revision: "#DC2626",
   },
 };
 
-export const colors = darkColors;
+export const colors = lightColors;
 
 export const spacing = {
   xs: 4,
@@ -126,11 +126,25 @@ export const font = {
 
 export const shadow = {
   card: {
-    shadowColor: "#020617",
+    shadowColor: "#19314F",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
     shadowRadius: 18,
     elevation: 2,
+  },
+  soft: {
+    shadowColor: "#19314F",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 1,
+  },
+  nav: {
+    shadowColor: "#19314F",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 8,
   },
 };
 

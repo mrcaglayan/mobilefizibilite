@@ -6,8 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppThemeMode, alpha, font, radius, spacing } from "@/src/theme";
 import { useAppTheme } from "@/src/theme-provider";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
-import { Card, ScreenHeader, ScreenScaffold } from "@/src/ui/components";
+import { Card, GradientHeroCard, ScreenHeader, ScreenScaffold, SectionHeader } from "@/src/ui/components";
 
 const THEME_OPTIONS: { key: AppThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "light", label: "Aydınlık", icon: "sunny-outline" },
@@ -22,7 +21,7 @@ export default function SettingsScreen() {
   const colors = theme.colors;
 
   return (
-    <ScreenScaffold bottomNav={<AppBottomNav activeKey="settings" />} testID="settings-screen">
+    <ScreenScaffold testID="settings-screen">
       <ScreenHeader
         eyebrow="Uygulama"
         title="Ayarlar"
@@ -33,6 +32,16 @@ export default function SettingsScreen() {
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}
         showsVerticalScrollIndicator={false}
       >
+        <GradientHeroCard
+          eyebrow="AYARLAR"
+          title="Uygulama deneyimi"
+          subtitle="Tema ve hesap kısayollarını tek yerden yönetin."
+          icon="settings-outline"
+          metricValue={theme.mode === "system" ? "Sistem" : theme.mode === "light" ? "Light" : "Dark"}
+          metricLabel="aktif tema"
+          progress={theme.resolvedMode === "light" ? 100 : 45}
+        />
+
         <Section title="Görünüm">
           <Card style={{ gap: spacing.md }}>
             <Text style={[styles.cardLabel, { color: colors.textDim }]}>Tema</Text>
@@ -97,10 +106,9 @@ export default function SettingsScreen() {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const { colors } = useAppTheme();
   return (
     <View style={{ gap: spacing.sm }}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
+      <SectionHeader title={title} />
       {children}
     </View>
   );

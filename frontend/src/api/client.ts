@@ -3,7 +3,7 @@
 
 import { storage } from "@/src/utils/storage";
 
-const DEFAULT_BACKEND_URL = "http://tmffinance.com";
+const DEFAULT_BACKEND_URL = "https://tmffinance.com";
 const RAW_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL;
 
 function normalizeApiBase(rawBase: string): string {

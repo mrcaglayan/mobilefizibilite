@@ -17,8 +17,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { Country, School, api } from "@/src/api/client";
-import { colors, font, radius, spacing } from "@/src/theme";
-import { Button, Chip, EmptyState, Input } from "@/src/ui/components";
+import { alpha, colors, font, radius, spacing } from "@/src/theme";
+import { Button, Chip, EmptyStateCard, Input } from "@/src/ui/components";
 import { BottomSheet } from "@/src/ui/BottomSheet";
 
 export default function AdminCountryScreen() {
@@ -190,7 +190,7 @@ export default function AdminCountryScreen() {
           />
         }
         ListEmptyComponent={
-          <EmptyState
+          <EmptyStateCard
             icon="school-outline"
             title="Okul bulunamadı"
             subtitle="Sağ üstteki Okul Ekle düğmesi ile ekleyebilirsiniz."
@@ -238,7 +238,7 @@ export default function AdminCountryScreen() {
                 hitSlop={8}
                 style={[
                   styles.toggleBtn,
-                  { borderColor: closed ? colors.success : "#EF444455" },
+                  { borderColor: closed ? colors.success : alpha(colors.danger, 0.28) },
                 ]}
               >
                 <Ionicons
@@ -389,11 +389,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radius.md,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.accent, 0.16),
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: colors.primaryDark,
+    borderColor: alpha(colors.primary, 0.28),
   },
   flagText: { color: colors.primary, ...font.mono, fontSize: 15 },
   infoTitle: { color: colors.text, ...font.h3 },
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: radius.md,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.primary, 0.1),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -443,21 +443,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.primaryDark,
-    backgroundColor: "#F5B30114",
+    borderColor: alpha(colors.primary, 0.28),
+    backgroundColor: alpha(colors.primary, 0.08),
   },
   errBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
+    backgroundColor: alpha(colors.danger, 0.1),
+    borderColor: alpha(colors.danger, 0.28),
     borderWidth: 1,
     padding: 10,
     borderRadius: radius.md,
     marginBottom: spacing.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  errText: { color: colors.danger, ...font.small, flex: 1 },
   hint: { color: colors.textDim, ...font.small, marginBottom: spacing.md },
   toast: {
     position: "absolute",

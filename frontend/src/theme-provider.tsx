@@ -24,16 +24,16 @@ export type AppTheme = {
 const ThemeContext = createContext<AppTheme | null>(null);
 
 function normalizeMode(value: unknown): AppThemeMode {
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
+  return value === "light" || value === "dark" || value === "system" ? value : "light";
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [mode, setModeState] = useState<AppThemeMode>("system");
+  const [mode, setModeState] = useState<AppThemeMode>("light");
 
   useEffect(() => {
     let mounted = true;
-    storage.getItem(THEME_STORAGE_KEY, "system").then((stored) => {
+    storage.getItem(THEME_STORAGE_KEY, "light").then((stored) => {
       if (mounted) setModeState(normalizeMode(stored));
     });
     return () => {

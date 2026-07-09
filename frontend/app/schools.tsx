@@ -10,29 +10,31 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, School, SchoolProgressEntry } from "@/src/api/client";
-import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
-import { AppThemeColors, alpha, font, radius, spacing } from "@/src/theme";
-import { useAppTheme } from "@/src/theme-provider";
+import { useAuth } from "@/src/auth/AuthContext";
 import { BulkSendSheet, CountryBatchSendSheet } from "@/src/operations/Pr08Sheets";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import { AppThemeColors, alpha, font, radius, shadow, spacing } from "@/src/theme";
+import { useAppTheme } from "@/src/theme-provider";
+import { BottomSheet } from "@/src/ui/BottomSheet";
 import {
-  BrandMark,
   Button,
   Card,
   Chip,
-  EmptyState,
+  EmptyStateCard,
+  GradientHeroCard,
   Input,
   ProgressBar,
+  QuickActionGrid,
+  QuickActionTile,
   ScreenScaffold,
-  SearchBar,
-  StatusBadge,
+  SearchHeader,
+  SectionHeader,
+  StatusPill,
 } from "@/src/ui/components";
-import { BottomSheet } from "@/src/ui/BottomSheet";
 
 type SchoolFilter = "all" | "active" | "stale";
 
@@ -76,6 +78,26 @@ function schoolProgressLabel(progress?: SchoolProgressEntry) {
   return "Hazırlanıyor";
 }
 
+function schoolProgressTone(progress: SchoolProgressEntry | undefined, value: number) {
+  if (progress?.state === "error") return "revision" as const;
+  if (progress?.state === "approved" || value >= 80) return "complete" as const;
+  if (progress?.state === "empty" || value <= 0) return "notStarted" as const;
+  if (progress?.state === "active") return "review" as const;
+  return "preparing" as const;
+}
+
+function schoolLocation(school: School, fallbackCountry?: string | null) {
+  const parts = [school.city, school.country_name || fallbackCountry].filter(Boolean);
+  return parts.length ? parts.join(" • ") : "Konum bilgisi yok";
+}
+
+function schoolSummary(progress?: SchoolProgressEntry) {
+  const firstTooltip = Array.isArray(progress?.tooltipLines) ? progress?.tooltipLines?.[0] : "";
+  if (firstTooltip) return firstTooltip;
+  if (progress?.scenarioId) return `Aktif senaryo #${progress.scenarioId}`;
+  return schoolProgressLabel(progress);
+}
+
 function friendlyError(error: any, fallback: string) {
   const message = String(error?.message || "");
   if (!message || /invalid limit/i.test(message)) return fallback;
@@ -87,7 +109,8 @@ export default function SchoolsScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const theme = useAppTheme();
-  const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
+  const colors = theme.colors;
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [schools, setSchools] = useState<School[]>([]);
   const [progressBySchoolId, setProgressBySchoolId] = useState<Record<string, SchoolProgressEntry>>({});
@@ -164,12 +187,15 @@ export default function SchoolsScreen() {
   const filteredSchools = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("tr-TR");
     return schools.filter((school) => {
+      const progress = progressBySchoolId[String(school.id)];
       if (filter === "stale" && !staleBySchoolId[String(school.id)]) return false;
       if (filter === "active" && staleBySchoolId[String(school.id)]) return false;
       if (!q) return true;
-      return `${school.name || ""} ${school.country_name || ""}`.toLocaleLowerCase("tr-TR").includes(q);
+      return `${school.name || ""} ${school.city || ""} ${school.country_name || ""} ${progress?.label || ""}`
+        .toLocaleLowerCase("tr-TR")
+        .includes(q);
     });
-  }, [filter, schools, search, staleBySchoolId]);
+  }, [filter, progressBySchoolId, schools, search, staleBySchoolId]);
 
   async function onLogout() {
     await logout();
@@ -200,35 +226,268 @@ export default function SchoolsScreen() {
 
   const progressAverage = schools.length
     ? Math.round(
-      schools.reduce((sum, school) => sum + schoolProgressValue(school, progressBySchoolId[String(school.id)]), 0) /
-      schools.length,
-    )
+        schools.reduce(
+          (sum, school) => sum + schoolProgressValue(school, progressBySchoolId[String(school.id)]),
+          0,
+        ) / schools.length,
+      )
     : 0;
   const staleCount = Object.values(staleBySchoolId).filter(Boolean).length;
+  const visibleCount = filteredSchools.length;
+
+  const quickActions = useMemo(
+    () => [
+      {
+        label: "Okullar",
+        subtitle: `${visibleCount} görünür`,
+        icon: "school-outline" as const,
+        tone: "primary" as const,
+        active: filter === "all",
+        onPress: () => setFilter("all"),
+        testID: "schools-action-schools",
+      },
+      ...(user?.role === "admin"
+        ? [
+            {
+              label: "Onaylar",
+              subtitle: "Admin kuyruğu",
+              icon: "checkmark-done-outline" as const,
+              tone: "success" as const,
+              onPress: () => router.push("/admin/approvals"),
+              testID: "schools-admin-approvals-link",
+            },
+            {
+              label: "Raporlar",
+              subtitle: "Rollup",
+              icon: "bar-chart-outline" as const,
+              tone: "accent" as const,
+              onPress: () => router.push("/admin/reports"),
+              testID: "schools-admin-reports-link",
+            },
+            {
+              label: "Kullanıcılar",
+              subtitle: "Hesaplar",
+              icon: "people-outline" as const,
+              tone: "info" as const,
+              onPress: () => router.push("/admin/users"),
+              testID: "schools-admin-users-link",
+            },
+            {
+              label: "Ülkeler",
+              subtitle: "Yönetim",
+              icon: "earth-outline" as const,
+              tone: "primary" as const,
+              onPress: () => router.push("/admin/countries"),
+              testID: "schools-admin-countries-link",
+            },
+            {
+              label: "Yetkiler",
+              subtitle: "Erişim",
+              icon: "key-outline" as const,
+              tone: "warning" as const,
+              onPress: () => router.push("/admin/manage-permissions"),
+              testID: "schools-admin-permissions-link",
+            },
+            {
+              label: "İlerleme",
+              subtitle: "Kurallar",
+              icon: "speedometer-outline" as const,
+              tone: "success" as const,
+              onPress: () => router.push("/admin/progress"),
+              testID: "schools-admin-progress-link",
+            },
+          ]
+        : []),
+      ...(canOpenReviewQueue && user?.role !== "admin"
+        ? [
+            {
+              label: "İnceleme",
+              subtitle: "Kuyruk",
+              icon: "checkmark-done-outline" as const,
+              tone: "success" as const,
+              onPress: () => router.push("/manager/review-queue"),
+              testID: "schools-manager-review-link",
+            },
+          ]
+        : []),
+      ...(canSendCountryOps
+        ? [
+            {
+              label: "Toplu Gönder",
+              subtitle: "Okullar",
+              icon: "paper-plane-outline" as const,
+              tone: "accent" as const,
+              disabled: !schools.length,
+              onPress: () => setBulkSendOpen(true),
+              testID: "schools-bulk-send-button",
+            },
+            {
+              label: "Paket Gönder",
+              subtitle: "Ülke",
+              icon: "albums-outline" as const,
+              tone: "primary" as const,
+              disabled: !schools.length || !user?.country_id,
+              onPress: () => setCountryBatchOpen(true),
+              testID: "schools-country-batch-button",
+            },
+          ]
+        : []),
+      ...(canManageManagerUsers && user?.role !== "admin"
+        ? [
+            {
+              label: "Kullanıcılar",
+              subtitle: "Ekip",
+              icon: "people-outline" as const,
+              tone: "info" as const,
+              onPress: () => router.push("/manager/users"),
+              testID: "schools-manager-users-link",
+            },
+            {
+              label: "Yetkiler",
+              subtitle: "Erişim",
+              icon: "key-outline" as const,
+              tone: "warning" as const,
+              onPress: () => router.push("/manager/manage-permissions"),
+              testID: "schools-manager-permissions-link",
+            },
+          ]
+        : []),
+      ...(canCreateSchool
+        ? [
+            {
+              label: "Okul Ekle",
+              subtitle: "Yeni kayıt",
+              icon: "add-circle-outline" as const,
+              tone: "primary" as const,
+              onPress: () => {
+                setActionErr("");
+                setCreateOpen(true);
+              },
+              testID: "schools-create-button",
+            },
+          ]
+        : []),
+    ],
+    [
+      canCreateSchool,
+      canManageManagerUsers,
+      canOpenReviewQueue,
+      canSendCountryOps,
+      filter,
+      router,
+      schools.length,
+      user?.country_id,
+      user?.role,
+      visibleCount,
+    ],
+  );
+
+  const logoutButton = (
+    <Pressable
+      onPress={onLogout}
+      hitSlop={10}
+      style={({ pressed }) => [
+        styles.headerIconBtn,
+        {
+          backgroundColor: colors.bgElev,
+          borderColor: colors.border,
+          opacity: pressed ? 0.78 : 1,
+        },
+      ]}
+      testID="schools-logout-button"
+    >
+      <Ionicons name="log-out-outline" size={22} color={colors.primary} />
+    </Pressable>
+  );
+
+  if (isPrincipal) {
+    return (
+      <ScreenScaffold testID="schools-screen">
+        <FlatList
+          data={loading || err ? [] : schools}
+          keyExtractor={(school) => String(school.id)}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load();
+              }}
+              tintColor={colors.primary}
+            />
+          }
+          ListHeaderComponent={
+            metadataErr || loading || err ? (
+              <View style={styles.principalListHead}>
+              {metadataErr ? (
+                <Card style={styles.inlineNotice}>
+                  <Ionicons name="information-circle-outline" size={18} color={colors.warn} />
+                  <Text style={styles.inlineNoticeText}>{metadataErr}</Text>
+                </Card>
+              ) : null}
+
+              {loading ? <LoadingCard /> : null}
+
+              {err ? (
+                <EmptyStateCard
+                  icon="alert-circle-outline"
+                  title="Okullar yüklenemedi"
+                  subtitle={err}
+                  actionLabel="Tekrar dene"
+                  onActionPress={load}
+                  testID="schools-error"
+                />
+              ) : null}
+            </View>
+            ) : null
+          }
+          contentContainerStyle={{
+            paddingHorizontal: spacing.lg,
+            paddingTop: spacing.lg,
+            paddingBottom: insets.bottom + 32,
+            gap: spacing.md,
+          }}
+          ListEmptyComponent={
+            loading || err ? null : (
+              <EmptyStateCard
+                icon="school-outline"
+                title="Okul atamanız yok"
+                subtitle="Size atanmış okul bulunmuyor."
+              />
+            )
+          }
+          renderItem={({ item }) => {
+            const progress = progressBySchoolId[String(item.id)];
+            const value = schoolProgressValue(item, progress);
+            const isStale = Boolean(staleBySchoolId[String(item.id)]);
+            return (
+              <SchoolCard
+                school={item}
+                progress={progress}
+                value={value}
+                isStale={isStale}
+                countryName={user?.country_name || null}
+                onPress={() => router.push(`/school/${item.id}`)}
+              />
+            );
+          }}
+        />
+      </ScreenScaffold>
+    );
+  }
 
   return (
-    <ScreenScaffold bottomNav={<AppBottomNav activeKey="schools" />} testID="schools-screen">
-      <View style={styles.header}>
-        <BrandMark small />
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => router.push("/profile")}
-            hitSlop={10}
-            style={styles.iconBtn}
-            testID="schools-profile-button"
-          >
-            <Ionicons name="person-circle-outline" size={21} color={theme.colors.textDim} />
-          </Pressable>
-          <Pressable
-            onPress={onLogout}
-            hitSlop={10}
-            style={styles.iconBtn}
-            testID="schools-logout-button"
-          >
-            <Ionicons name="log-out-outline" size={19} color={theme.colors.textDim} />
-          </Pressable>
-        </View>
-      </View>
+    <ScreenScaffold testID="schools-screen">
+      <SearchHeader
+        value={search}
+        onChangeText={setSearch}
+        placeholder="Okul, senaryo veya işlem arayın"
+        onProfilePress={() => router.push("/profile")}
+        right={logoutButton}
+        inputProps={{ testID: "schools-search" }}
+        testID="schools-search-header"
+      />
 
       <FlatList
         data={loading || err ? [] : filteredSchools}
@@ -241,12 +500,12 @@ export default function SchoolsScreen() {
               setRefreshing(true);
               load();
             }}
-            tintColor={theme.colors.primary}
+            tintColor={colors.primary}
           />
         }
         ListHeaderComponent={
           <View style={styles.contentHead}>
-            <View>
+            <View style={styles.welcomeBlock}>
               <Text style={styles.hello}>Merhaba,</Text>
               <Text style={styles.userLine} testID="schools-user-email" numberOfLines={1}>
                 {user?.email || "-"}
@@ -258,102 +517,98 @@ export default function SchoolsScreen() {
               </Text>
             </View>
 
-            <View style={styles.kpiRow}>
-              <MiniKpi icon="school-outline" label="Okul" value={String(schools.length)} />
-              <MiniKpi icon="trending-up-outline" label="Ortalama" value={`${progressAverage}%`} />
-              <MiniKpi icon="alert-circle-outline" label="Uyarı" value={String(staleCount)} />
-            </View>
-
-            <QuickActions
-              role={user?.role}
-              canManageManagerUsers={canManageManagerUsers}
-              canOpenReviewQueue={canOpenReviewQueue}
-              onOpen={(route) => router.push(route as any)}
-            />
-
-            <View style={styles.schoolTools}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.sectionTitle}>Okullar</Text>
-                <Text style={styles.sectionSub}>
-                  {isPrincipal ? "Size atanmış kampüsler" : "Senaryo listesine okul üzerinden geçin"}
+            <GradientHeroCard
+              icon="analytics-outline"
+              eyebrow={isPrincipal ? "Okullarım" : "Genel Durum"}
+              title={schools.length ? `${schools.length} okul takipte` : "Okul verisi bekleniyor"}
+              subtitle={
+                isPrincipal
+                  ? "Size atanan okulların senaryo durumlarını buradan takip edin."
+                  : "Okulların senaryo ilerlemesini, uyarılarını ve aksiyonlarını tek ekrandan yönetin."
+              }
+              metricValue={`${progressAverage}%`}
+              metricLabel="ortalama ilerleme"
+              progress={progressAverage}
+              actionLabel={staleCount ? "Uyarıları göster" : undefined}
+              onAction={staleCount ? () => setFilter("stale") : undefined}
+              footer={
+                <Text style={styles.heroFooterText} numberOfLines={2}>
+                  {staleCount
+                    ? `${staleCount} okul gider dağıtımı güncellemesi bekliyor.`
+                    : schools.length
+                      ? "Gider dağıtımı uyarısı görünmüyor."
+                      : "Okul listesi yüklendiğinde özet burada güncellenir."}
                 </Text>
-              </View>
-              {canSendCountryOps ? (
-                <View style={styles.sectionActions}>
-                  <Button
-                    label="Toplu"
-                    icon="paper-plane-outline"
-                    small
-                    variant="secondary"
-                    onPress={() => setBulkSendOpen(true)}
-                    disabled={!schools.length}
-                    testID="schools-bulk-send-button"
-                  />
-                  <Button
-                    label="Paket"
-                    icon="albums-outline"
-                    small
-                    onPress={() => setCountryBatchOpen(true)}
-                    disabled={!schools.length || !user?.country_id}
-                    testID="schools-country-batch-button"
-                  />
-                </View>
-              ) : null}
-              {canCreateSchool ? (
-                <Pressable
-                  onPress={() => {
-                    setActionErr("");
-                    setCreateOpen(true);
-                  }}
-                  style={({ pressed }) => [styles.addBtn, { opacity: pressed ? 0.85 : 1 }]}
-                  testID="schools-create-button"
-                >
-                  <Ionicons name="add" size={21} color={theme.colors.primaryText} />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <SearchBar
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Okul ara..."
-              testID="schools-search"
+              }
+              testID="schools-hero-card"
             />
-            <View style={styles.filterRow}>
-              <Chip label="Tümü" active={filter === "all"} onPress={() => setFilter("all")} />
-              <Chip label="Aktif" active={filter === "active"} onPress={() => setFilter("active")} />
-              <Chip label="Gider uyarısı" active={filter === "stale"} onPress={() => setFilter("stale")} />
+
+            <View style={styles.statsRow}>
+              <DashboardStat icon="school-outline" label="Toplam" value={String(schools.length)} />
+              <DashboardStat icon="eye-outline" label="Görünen" value={String(visibleCount)} />
+              <DashboardStat icon="alert-circle-outline" label="Uyarı" value={String(staleCount)} tone="warning" />
             </View>
 
-            {metadataErr ? (
-              <View style={styles.inlineNotice}>
-                <Ionicons name="information-circle-outline" size={16} color={theme.colors.warn} />
-                <Text style={styles.inlineNoticeText}>{metadataErr}</Text>
+            {quickActions.length ? (
+              <View style={styles.sectionBlock}>
+                <SectionHeader title="Hızlı İşlemler" subtitle="Yetkinize göre kullanılabilir aksiyonlar" />
+                <QuickActionGrid columns={2}>
+                  {quickActions.map((action) => (
+                    <QuickActionTile key={action.testID} {...action} />
+                  ))}
+                </QuickActionGrid>
               </View>
             ) : null}
 
-            {loading ? (
-              <View style={styles.loadingBlock}>
-                <ActivityIndicator color={theme.colors.primary} />
+            <View style={styles.sectionBlock}>
+              <SectionHeader
+                title="Okullarım"
+                subtitle={isPrincipal ? "Size atanmış kampüsler" : "Senaryo listesine okul üzerinden geçin"}
+                right={<StatusPill label={`${visibleCount}/${schools.length}`} tone="primary" showDot={false} />}
+              />
+              <View style={styles.filterRow}>
+                <Chip label="Tümü" active={filter === "all"} onPress={() => setFilter("all")} />
+                <Chip label="Aktif" active={filter === "active"} onPress={() => setFilter("active")} />
+                <Chip label="Uyarılı" active={filter === "stale"} onPress={() => setFilter("stale")} />
               </View>
-            ) : err ? (
-              <Card testID="schools-error">
-                <Text style={styles.errorText}>{err}</Text>
+            </View>
+
+            {metadataErr ? (
+              <Card style={styles.inlineNotice}>
+                <Ionicons name="information-circle-outline" size={18} color={colors.warn} />
+                <Text style={styles.inlineNoticeText}>{metadataErr}</Text>
               </Card>
+            ) : null}
+
+            {loading ? <LoadingCard /> : null}
+
+            {err ? (
+              <EmptyStateCard
+                icon="alert-circle-outline"
+                title="Okullar yüklenemedi"
+                subtitle={err}
+                actionLabel="Tekrar dene"
+                onActionPress={load}
+                testID="schools-error"
+              />
             ) : null}
           </View>
         }
         contentContainerStyle={{
           paddingHorizontal: spacing.lg,
-          paddingBottom: insets.bottom + 106,
+          paddingBottom: insets.bottom + 120,
           gap: spacing.md,
         }}
         ListEmptyComponent={
           loading || err ? null : (
-            <EmptyState
+            <EmptyStateCard
               icon="school-outline"
               title={search || filter !== "all" ? "Okul bulunamadı" : "Henüz okul tanımlanmamış"}
-              subtitle={isPrincipal ? "Okul atamanız yok." : "Filtreyi değiştirin veya yöneticinizle iletişime geçin."}
+              subtitle={
+                isPrincipal
+                  ? "Okul atamanız yok."
+                  : "Filtreyi değiştirin veya okul tanımı için yöneticinizle iletişime geçin."
+              }
             />
           )
         }
@@ -364,10 +619,10 @@ export default function SchoolsScreen() {
           return (
             <SchoolCard
               school={item}
+              progress={progress}
               value={value}
-              label={schoolProgressLabel(progress)}
               isStale={isStale}
-              countryName={item.country_name || user?.country_name || "-"}
+              countryName={user?.country_name || null}
               onPress={() => router.push(`/school/${item.id}`)}
             />
           );
@@ -419,265 +674,215 @@ export default function SchoolsScreen() {
   );
 }
 
-function MiniKpi({
+function DashboardStat({
   icon,
   label,
   value,
+  tone = "primary",
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
+  tone?: "primary" | "warning";
 }) {
   const { colors } = useAppTheme();
+  const accent = tone === "warning" ? colors.warn : colors.primary;
   return (
-    <Card style={{ flex: 1, padding: spacing.sm }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-        <Ionicons name={icon} size={17} color={colors.primary} />
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.textMuted, ...font.tiny }}>{label}</Text>
-          <Text style={{ color: colors.text, ...font.bodyMd }}>{value}</Text>
-        </View>
+    <Card style={stylesForStat.card}>
+      <View style={[stylesForStat.icon, { backgroundColor: alpha(accent, 0.12) }]}>
+        <Ionicons name={icon} size={18} color={accent} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[stylesForStat.label, { color: colors.textMuted }]} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={[stylesForStat.value, { color: colors.text }]} numberOfLines={1}>
+          {value}
+        </Text>
       </View>
     </Card>
   );
 }
 
-function QuickActions({
-  role,
-  canManageManagerUsers,
-  canOpenReviewQueue,
-  onOpen,
-}: {
-  role?: string;
-  canManageManagerUsers: boolean;
-  canOpenReviewQueue: boolean;
-  onOpen: (route: string) => void;
-}) {
-  const actions =
-    role === "admin"
-      ? [
-        { icon: "people-outline" as const, title: "Kullanıcılar", route: "/admin/users", testID: "schools-admin-users-link" },
-        { icon: "earth-outline" as const, title: "Ülkeler", route: "/admin/countries", testID: "schools-admin-countries-link" },
-        { icon: "key-outline" as const, title: "Yetkiler", route: "/admin/manage-permissions", testID: "schools-admin-permissions-link" },
-        { icon: "checkmark-done-outline" as const, title: "Onaylar", route: "/admin/approvals", testID: "schools-admin-approvals-link" },
-        { icon: "speedometer-outline" as const, title: "İlerleme", route: "/admin/progress", testID: "schools-admin-progress-link" },
-        { icon: "bar-chart-outline" as const, title: "Raporlar", route: "/admin/reports", testID: "schools-admin-reports-link" },
-      ]
-      : [
-        ...(canManageManagerUsers
-          ? [
-            { icon: "people-outline" as const, title: "Kullanıcılar", route: "/manager/users", testID: "schools-manager-users-link" },
-            { icon: "key-outline" as const, title: "Yetkiler", route: "/manager/manage-permissions", testID: "schools-manager-permissions-link" },
-          ]
-          : []),
-        ...(canOpenReviewQueue
-          ? [{ icon: "checkmark-done-outline" as const, title: "İnceleme", route: "/manager/review-queue", testID: "schools-manager-review-link" }]
-          : []),
-      ];
-
-  if (!actions.length) return null;
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-      {actions.map((action) => (
-        <ActionTile
-          key={action.route}
-          icon={action.icon}
-          title={action.title}
-          testID={action.testID}
-          onPress={() => onOpen(action.route)}
-        />
-      ))}
-    </View>
-  );
-}
-
-function ActionTile({
-  icon,
-  title,
-  testID,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  testID?: string;
-  onPress: () => void;
-}) {
+function LoadingCard() {
   const { colors } = useAppTheme();
   return (
-    <Pressable
-      testID={testID}
-      onPress={onPress}
-      style={({ pressed }) => [
-        {
-          minHeight: 52,
-          flexGrow: 1,
-          flexBasis: "30%",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: spacing.sm,
-          borderRadius: radius.md,
-          backgroundColor: colors.bgElev,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          padding: spacing.sm,
-          opacity: pressed ? 0.82 : 1,
-        },
-      ]}
-    >
-      <View
-        style={{
-          width: 30,
-          height: 30,
-          borderRadius: radius.sm,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: alpha(colors.primary, 0.14),
-        }}
-      >
-        <Ionicons name={icon} size={16} color={colors.primary} />
-      </View>
-      <Text style={{ color: colors.text, ...font.small, fontWeight: "700", flexShrink: 1 }} numberOfLines={1}>
-        {title}
-      </Text>
-    </Pressable>
+    <Card style={stylesForStat.loading}>
+      <ActivityIndicator color={colors.primary} />
+      <Text style={[stylesForStat.loadingText, { color: colors.textDim }]}>Okullar yükleniyor...</Text>
+    </Card>
   );
 }
 
 function SchoolCard({
   school,
+  progress,
   value,
-  label,
   isStale,
   countryName,
   onPress,
 }: {
   school: School;
+  progress?: SchoolProgressEntry;
   value: number;
-  label: string;
   isStale: boolean;
-  countryName: string;
+  countryName?: string | null;
   onPress: () => void;
 }) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
+  const progressTone = schoolProgressTone(progress, value);
+  const statusLabel = isStale ? "Uyarı var" : schoolProgressLabel(progress);
+  const actionLabel = value >= 100 ? "Aç" : "Devam et";
+  const summary = isStale
+    ? "Gider dağıtımı güncellemesi bekliyor."
+    : schoolSummary(progress);
+
   return (
     <Pressable
       testID={`school-card-${school.id}`}
       onPress={onPress}
       style={({ pressed }) => [
+        stylesForSchool.card,
         {
           backgroundColor: colors.bgElev,
-          borderRadius: radius.lg,
-          borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
-          padding: spacing.md,
           opacity: pressed ? 0.9 : 1,
+          transform: [{ translateY: pressed ? 1 : 0 }],
         },
+        !isDark && shadow.card,
       ]}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-        <View
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: radius.md,
-            backgroundColor: alpha(colors.primary, 0.14),
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name="business-outline" size={20} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: colors.text, ...font.bodyMd, fontSize: 16 }} numberOfLines={2}>
+      <View style={stylesForSchool.topRow}>
+        <View style={stylesForSchool.titleWrap}>
+          <Text style={[stylesForSchool.title, { color: colors.text }]} numberOfLines={2}>
             {school.name}
           </Text>
-          <Text style={{ color: colors.textDim, ...font.small, marginTop: 2 }} numberOfLines={1}>
-            {countryName} • Güncelleme {formatDate(school.updated_at || school.created_at)}
+          <Text style={[stylesForSchool.meta, { color: colors.textDim }]} numberOfLines={1}>
+            {schoolLocation(school, countryName)}
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={19} color={colors.textMuted} />
-      </View>
-
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md }}>
-        <View style={{ flex: 1 }}>
-          <ProgressBar value={value} />
-        </View>
-        <Text style={{ color: colors.textDim, ...font.small, minWidth: 42, textAlign: "right" }}>
-          {Math.round(value)}%
-        </Text>
-      </View>
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm }}>
-        <StatusBadge
-          label={label}
-          tone={value >= 80 ? "complete" : value > 0 ? "preparing" : "notStarted"}
+        <StatusPill
+          label={statusLabel}
+          tone={isStale ? "revision" : progressTone}
+          icon={isStale ? "alert-circle-outline" : undefined}
+          showDot={!isStale}
+          style={stylesForSchool.statusPill}
         />
-        {isStale ? <StatusBadge label="Gider dağıtımı eski" tone="revision" /> : null}
+      </View>
+
+      <View style={stylesForSchool.progressRow}>
+        <View style={stylesForSchool.progressTrack}>
+          <ProgressBar value={value} height={9} />
+        </View>
+        <Text style={[stylesForSchool.percent, { color: colors.text }]}>{Math.round(value)}%</Text>
+      </View>
+
+      <View style={[stylesForSchool.footerRow, { borderTopColor: colors.border }]}>
+        <Text style={[stylesForSchool.summary, { color: colors.textDim }]} numberOfLines={2}>
+          {summary}
+        </Text>
+        <View style={[stylesForSchool.cta, { backgroundColor: value >= 100 ? colors.bgElev2 : colors.primary, borderColor: value >= 100 ? colors.borderStrong : colors.primary }]}>
+          <Text style={[stylesForSchool.ctaText, { color: value >= 100 ? colors.primary : colors.primaryText }]}>
+            {actionLabel}
+          </Text>
+        </View>
       </View>
     </Pressable>
   );
 }
 
+const stylesForStat = StyleSheet.create({
+  card: {
+    flex: 1,
+    minHeight: 76,
+    padding: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  icon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  label: { ...font.tiny },
+  value: { ...font.h3, marginTop: 1 },
+  loading: {
+    minHeight: 96,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  loadingText: { ...font.small },
+});
+
+const stylesForSchool = StyleSheet.create({
+  card: {
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  topRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
+  titleWrap: { flex: 1, minWidth: 0 },
+  title: { ...font.h3, fontSize: 17, letterSpacing: -0.2 },
+  meta: { ...font.small, marginTop: 4 },
+  statusPill: { maxWidth: 132 },
+  progressRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  progressTrack: { flex: 1, minWidth: 0 },
+  percent: { ...font.small, width: 42, flexShrink: 0, textAlign: "right", fontWeight: "900" },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: spacing.md,
+  },
+  summary: { ...font.small, flex: 1, lineHeight: 18 },
+  cta: {
+    minHeight: 40,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaText: { ...font.small, fontWeight: "900" },
+});
+
+
 function createStyles(colors: AppThemeColors) {
   return StyleSheet.create({
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-      backgroundColor: colors.bg,
-    },
-    headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-    iconBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: radius.md,
-      backgroundColor: colors.bgElev,
+    headerIconBtn: {
+      width: 46,
+      height: 46,
+      borderRadius: radius.pill,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
       alignItems: "center",
       justifyContent: "center",
+      ...shadow.soft,
     },
-    contentHead: { paddingTop: spacing.lg, gap: spacing.md },
+    contentHead: { paddingTop: spacing.md, gap: spacing.lg },
+    principalListHead: { gap: spacing.md },
+    welcomeBlock: { gap: 2 },
     hello: { color: colors.textDim, ...font.small },
     userLine: { color: colors.text, ...font.h2, marginTop: 2 },
     roleLine: { color: colors.textDim, ...font.small, marginTop: 4 },
-    kpiRow: { flexDirection: "row", gap: spacing.sm },
-    schoolTools: {
-      flexDirection: "row",
-      alignItems: "center",
-      flexWrap: "wrap",
-      gap: spacing.md,
-      marginTop: spacing.xs,
-    },
-    sectionActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-    sectionTitle: { color: colors.text, ...font.h3 },
-    sectionSub: { color: colors.textDim, ...font.small, marginTop: 2 },
-    addBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: radius.md,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    heroFooterText: { color: "rgba(255,255,255,0.86)", ...font.small, lineHeight: 18 },
+    statsRow: { flexDirection: "row", gap: spacing.sm },
+    sectionBlock: { gap: spacing.sm },
     filterRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
     inlineNotice: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.sm,
-      padding: spacing.sm,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: alpha(colors.warn, 0.32),
-      borderRadius: radius.md,
       backgroundColor: alpha(colors.warn, 0.1),
+      borderColor: alpha(colors.warn, 0.28),
     },
     inlineNoticeText: { color: colors.textDim, ...font.small, flex: 1 },
-    loadingBlock: { padding: spacing.xl, alignItems: "center", justifyContent: "center" },
-    errorText: { color: colors.danger, ...font.bodyMd },
     sheetBody: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.lg },
     actionError: { color: colors.danger, ...font.small, marginBottom: spacing.md },
   });

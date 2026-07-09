@@ -12,16 +12,30 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Scenario, School } from "@/src/api/client";
-import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
-import { colors, font, radius, spacing } from "@/src/theme";
-import { BottomSheet } from "@/src/ui/BottomSheet";
-import { Button, Card, Chip, EmptyState, Input, ProgressBar } from "@/src/ui/components";
+import { useAuth } from "@/src/auth/AuthContext";
 import { ExpenseDistributionSheet } from "@/src/operations/Pr08Sheets";
+import { AppThemeColors, alpha, font, radius, shadow, spacing } from "@/src/theme";
+import { useAppTheme } from "@/src/theme-provider";
+import { BottomSheet } from "@/src/ui/BottomSheet";
+import {
+  Button,
+  Card,
+  Chip,
+  EmptyStateCard,
+  GradientHeroCard,
+  Input,
+  ProgressBar,
+  ScreenScaffold,
+  SectionHeader,
+  StatusPill,
+  StatusTone,
+} from "@/src/ui/components";
+import { StickyBackHeader } from "@/src/ui/StickyBackHeader";
 
 type ScenarioForm = {
   name: string;
@@ -92,51 +106,25 @@ function isScenarioLocked(scenario: Scenario) {
   );
 }
 
-function statusMeta(scenario: Scenario) {
+function statusMeta(scenario: Scenario): { label: string; tone: StatusTone; icon: keyof typeof Ionicons.glyphMap } {
   const status = String(scenario.status || scenario.state || "draft");
   switch (status) {
     case "revision_requested":
-      return {
-        label: "Revize istendi",
-        bg: "#F9731622",
-        border: "#F9731655",
-        text: "#FDBA74",
-        dot: colors.warn,
-      };
+      return { label: "Revize istendi", tone: "revision", icon: "alert-circle-outline" };
     case "sent_for_approval":
     case "submitted":
-      return {
-        label: "Merkeze iletildi",
-        bg: "#4C8DFF22",
-        border: "#4C8DFF55",
-        text: "#93B5FF",
-        dot: colors.accent,
-      };
+      return { label: "Merkeze iletildi", tone: "review", icon: "paper-plane-outline" };
     case "in_review":
-      return {
-        label: "Incelemede",
-        bg: "#4C8DFF22",
-        border: "#4C8DFF55",
-        text: "#93B5FF",
-        dot: colors.accent,
-      };
+      return { label: "İncelemede", tone: "review", icon: "search-outline" };
     case "approved":
       return {
-        label: scenario.sent_at ? "Onaylandi" : "Kontrol edildi",
-        bg: "#22C55E22",
-        border: "#22C55E55",
-        text: "#86EFAC",
-        dot: colors.success,
+        label: scenario.sent_at ? "Onaylandı" : "Kontrol edildi",
+        tone: "complete",
+        icon: "checkmark-circle-outline",
       };
     case "draft":
     default:
-      return {
-        label: status === "draft" ? "Taslak" : status,
-        bg: colors.bgElev2,
-        border: colors.border,
-        text: colors.textDim,
-        dot: colors.textMuted,
-      };
+      return { label: status === "draft" ? "Taslak" : status, tone: "notStarted", icon: "document-outline" };
   }
 }
 
@@ -144,9 +132,15 @@ function currencyLabel(scenario: Scenario) {
   if (scenario.input_currency === "LOCAL") {
     const code = scenario.local_currency_code || "LOCAL";
     const fx = Number(scenario.fx_usd_to_local);
-    return Number.isFinite(fx) && fx > 0 ? `${code} · Kur ${fx}` : code;
+    return Number.isFinite(fx) && fx > 0 ? `${code} • Kur ${fx}` : code;
   }
   return "USD";
+}
+
+function programLabel(scenario: Scenario) {
+  if (scenario.program_type === "international") return "Uluslararası";
+  if (scenario.program_type === "local") return "Yerel";
+  return "Program yok";
 }
 
 function scenarioProgressValue(scenario: Scenario, progressByScenarioId: Record<string, number | null>) {
@@ -155,11 +149,27 @@ function scenarioProgressValue(scenario: Scenario, progressByScenarioId: Record<
   return Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
 }
 
+function scenarioActionLabel(scenario: Scenario, progress: number, locked: boolean) {
+  if (locked) return "Onay sürecini takip et";
+  if (scenario.expense_split_stale) return "Gider dağıtımını yenile";
+  if (progress < 100) return "Eksik modülleri tamamla";
+  return "Senaryoyu aç";
+}
+
+function schoolLocation(school: School | null) {
+  if (!school) return "";
+  const parts = [school.city, school.country_name].filter(Boolean);
+  return parts.length ? parts.join(" • ") : "Konum bilgisi yok";
+}
+
 export default function SchoolScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
   const [school, setSchool] = useState<School | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [progressByScenarioId, setProgressByScenarioId] = useState<Record<string, number | null>>({});
@@ -196,6 +206,7 @@ export default function SchoolScreen() {
     Boolean(id) &&
     user?.role !== "admin" &&
     can(user, "page.manage_permissions", "write", permissionScope);
+  const isPrincipal = user?.role === "principal";
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -219,9 +230,10 @@ export default function SchoolScreen() {
       const progressResults = await Promise.allSettled(
         progressTargets.map(async (scenario) => {
           const snapshot = await api.getScenarioProgress(id, scenario.id);
-          const progress = snapshot.progress && typeof snapshot.progress === "object"
-            ? (snapshot.progress as Record<string, unknown>)
-            : {};
+          const progress =
+            snapshot.progress && typeof snapshot.progress === "object"
+              ? (snapshot.progress as Record<string, unknown>)
+              : {};
           const pct = Number(progress.pct ?? scenario.progress_pct ?? 0);
           return [String(scenario.id), Number.isFinite(pct) ? pct : null] as const;
         }),
@@ -238,11 +250,11 @@ export default function SchoolScreen() {
       setProgressByScenarioId(nextProgress);
       setProgressWarning(
         scenarioItems.length > progressTargets.length
-          ? `Ilk ${progressTargets.length} senaryo icin ilerleme gosteriliyor.`
+          ? `İlk ${progressTargets.length} senaryo için ilerleme gösteriliyor.`
           : "",
       );
     } catch (e: any) {
-      setErr(e?.message || "Yuklenemedi");
+      setErr(e?.message || "Yüklenemedi");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -263,7 +275,7 @@ export default function SchoolScreen() {
 
   function openEdit(scenario: Scenario) {
     if (isScenarioLocked(scenario)) {
-      setErr("Senaryo onay surecinde oldugu icin duzenlenemez.");
+      setErr("Senaryo onay sürecinde olduğu için düzenlenemez.");
       return;
     }
     setFormMode("edit");
@@ -276,16 +288,16 @@ export default function SchoolScreen() {
   function validateForm() {
     const name = form.name.trim();
     const academicYear = form.academicYear.trim();
-    if (!name) return "Senaryo adi zorunludur.";
-    if (!validAcademicYear(academicYear)) return "Akademik yil YYYY veya YYYY-YYYY formatinda olmalidir.";
+    if (!name) return "Senaryo adı zorunludur.";
+    if (!validAcademicYear(academicYear)) return "Akademik yıl YYYY veya YYYY-YYYY formatında olmalıdır.";
 
     const usesLocalCurrency =
       formMode === "create" ? form.inputCurrency === "LOCAL" : selectedScenario?.input_currency === "LOCAL";
     if (usesLocalCurrency) {
       const code = normalizeCurrencyCode(form.localCurrencyCode);
       const fx = Number(form.fxUsdToLocal);
-      if (!/^[A-Z]{3}$/.test(code)) return "Yerel para birimi 3 harfli kod olmalidir.";
-      if (!Number.isFinite(fx) || fx <= 0) return "Kur degeri 0'dan buyuk olmalidir.";
+      if (!/^[A-Z]{3}$/.test(code)) return "Yerel para birimi 3 harfli kod olmalıdır.";
+      if (!Number.isFinite(fx) || fx <= 0) return "Kur değeri 0'dan büyük olmalıdır.";
     }
     return "";
   }
@@ -337,7 +349,7 @@ export default function SchoolScreen() {
   async function confirmDeleteScenario() {
     if (!id || !deleteTarget) return;
     if (isScenarioLocked(deleteTarget)) {
-      setActionErr("Senaryo onayda veya onaylandi, silinemez.");
+      setActionErr("Senaryo onayda veya onaylandı, silinemez.");
       return;
     }
 
@@ -357,34 +369,40 @@ export default function SchoolScreen() {
   const formUsesLocalCurrency =
     formMode === "create" ? form.inputCurrency === "LOCAL" : selectedScenario?.input_currency === "LOCAL";
 
+  const averageProgress = scenarios.length
+    ? Math.round(
+        scenarios.reduce((sum, scenario) => sum + scenarioProgressValue(scenario, progressByScenarioId), 0) /
+          scenarios.length,
+      )
+    : 0;
+  const activeScenario = scenarios.find((scenario) => !isScenarioLocked(scenario)) || scenarios[0] || null;
+  const activePeriod = activeScenario?.academic_year || "Dönem yok";
+  const lockedCount = scenarios.filter(isScenarioLocked).length;
+  const staleCount = scenarios.filter((scenario) => scenario.expense_split_stale).length;
+  const schoolHeaderRight = canManageAssignments ? (
+    <Pressable
+      onPress={() => router.push({ pathname: "/manager/schools/[id]/assignments", params: { id: String(id) } })}
+      hitSlop={10}
+      style={styles.headerActionBtn}
+      testID="school-manager-assignments-link"
+    >
+      <Ionicons name="person-add-outline" size={19} color={colors.primary} />
+    </Pressable>
+  ) : null;
+
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]} testID="school-detail-screen">
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
-          style={styles.backBtn}
-          testID="school-back-button"
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.text} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerLabel}>OKUL</Text>
-          <Text numberOfLines={1} style={styles.headerTitle} testID="school-name">
-            {school?.name || "Yukleniyor..."}
-          </Text>
-        </View>
-        {canManageAssignments ? (
-          <Pressable
-            onPress={() => router.push({ pathname: "/manager/schools/[id]/assignments", params: { id: String(id) } })}
-            hitSlop={10}
-            style={styles.headerActionBtn}
-            testID="school-manager-assignments-link"
-          >
-            <Ionicons name="person-add-outline" size={18} color={colors.textDim} />
-          </Pressable>
-        ) : null}
-      </View>
+    <ScreenScaffold testID="school-detail-screen">
+      <StickyBackHeader
+        testID="school-back-button"
+        onPress={() => router.back()}
+        title={school?.name || "Okul"}
+        subtitle="Senaryolar"
+        right={schoolHeaderRight}
+        backgroundColor={colors.bg}
+        borderColor={colors.border}
+        iconColor={colors.text}
+        buttonBackgroundColor={colors.bgElev}
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -392,16 +410,13 @@ export default function SchoolScreen() {
         </View>
       ) : err ? (
         <View style={styles.errorWrap}>
-          <Card>
-            <Text style={{ color: colors.danger, ...font.body }}>{err}</Text>
-            <Button
-              label="Tekrar Dene"
-              icon="refresh-outline"
-              variant="secondary"
-              onPress={load}
-              style={{ marginTop: spacing.md }}
-            />
-          </Card>
+          <EmptyStateCard
+            icon="alert-circle-outline"
+            title="Okul yüklenemedi"
+            subtitle={err}
+            actionLabel="Tekrar Dene"
+            onActionPress={load}
+          />
         </View>
       ) : (
         <FlatList
@@ -409,39 +424,66 @@ export default function SchoolScreen() {
           keyExtractor={(s) => String(s.id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xl,
+            paddingTop: isPrincipal ? spacing.md : spacing.lg,
+            paddingBottom: insets.bottom + 32,
             gap: spacing.md,
           }}
           ListHeaderComponent={
-            <View style={styles.listHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.sectionTitle}>Senaryolar</Text>
-                <Text style={styles.sectionSub}>
-                  Durum, akademik yil, para birimi ve gider dagitimi bilgileri
-                </Text>
+            isPrincipal ? null : (
+              <View style={styles.listHeader}>
+                <GradientHeroCard
+                  icon="business-outline"
+                  eyebrow={schoolClosed ? "Kapalı okul" : "Okul özeti"}
+                  title={school?.name || "-"}
+                  subtitle={`${schoolLocation(school)} • ${scenarios.length} senaryo`}
+                  metricValue={`${averageProgress}%`}
+                  metricLabel="ortalama ilerleme"
+                  progress={averageProgress}
+                  actionLabel={canCreateScenario ? "Yeni senaryo" : undefined}
+                  onAction={canCreateScenario ? openCreate : undefined}
+                  footer={
+                    <Text style={styles.heroFooterText} numberOfLines={2}>
+                      Aktif dönem: {activePeriod}
+                      {staleCount ? ` • ${staleCount} gider uyarısı` : ""}
+                    </Text>
+                  }
+                  testID="school-summary-card"
+                />
+
+                <View style={styles.statsRow}>
+                  <SummaryStat icon="layers-outline" label="Senaryo" value={String(scenarios.length)} />
+                  <SummaryStat icon="calendar-outline" label="Dönem" value={activePeriod} />
+                  <SummaryStat icon="lock-closed-outline" label="Kilitli" value={String(lockedCount)} />
+                </View>
+
+                {schoolClosed ? (
+                  <NoticeCard icon="lock-closed-outline" tone="warning">
+                    Okul kapalı. Yeni senaryo yetkisi sınırlı olabilir.
+                  </NoticeCard>
+                ) : null}
+                {progressWarning ? (
+                  <NoticeCard icon="information-circle-outline" tone="warning">
+                    {progressWarning}
+                  </NoticeCard>
+                ) : null}
+
+                <SectionHeader
+                  title="Senaryolar"
+                  subtitle="Durum, dönem, para birimi ve gerekli aksiyonlar"
+                  right={
+                    canCreateScenario ? (
+                      <Pressable
+                        onPress={openCreate}
+                        style={({ pressed }) => [styles.addBtn, { opacity: pressed ? 0.85 : 1 }]}
+                        testID="scenario-create-button"
+                      >
+                        <Ionicons name="add" size={21} color={colors.primaryText} />
+                      </Pressable>
+                    ) : null
+                  }
+                />
               </View>
-              {canCreateScenario ? (
-                <Pressable
-                  onPress={openCreate}
-                  style={({ pressed }) => [styles.addBtn, { opacity: pressed ? 0.85 : 1 }]}
-                  testID="scenario-create-button"
-                >
-                  <Ionicons name="add" size={20} color={colors.primaryText} />
-                </Pressable>
-              ) : null}
-              {schoolClosed ? (
-                <View style={styles.closedNotice}>
-                  <Ionicons name="lock-closed-outline" size={15} color={colors.warn} />
-                  <Text style={styles.closedNoticeText}>Okul kapali. Yeni senaryo yetkisi sinirli olabilir.</Text>
-                </View>
-              ) : null}
-              {progressWarning ? (
-                <View style={styles.closedNotice}>
-                  <Ionicons name="information-circle-outline" size={15} color={colors.warn} />
-                  <Text style={styles.closedNoticeText}>{progressWarning}</Text>
-                </View>
-              ) : null}
-            </View>
+            )
           }
           refreshControl={
             <RefreshControl
@@ -454,120 +496,45 @@ export default function SchoolScreen() {
             />
           }
           ListEmptyComponent={
-            <EmptyState
+            <EmptyStateCard
               icon="layers-outline"
-              title="Senaryo bulunamadi"
+              title="Senaryo bulunamadı"
               subtitle={
                 canCreateScenario
-                  ? "Bu okul icin ilk senaryoyu olusturabilirsiniz."
-                  : "Bu okul icin henuz senaryo olusturulmamis."
+                  ? "Bu okul için ilk senaryoyu oluşturabilirsiniz."
+                  : "Bu okul için henüz senaryo oluşturulmamış."
               }
+              actionLabel={canCreateScenario ? "Senaryo Oluştur" : undefined}
+              onActionPress={canCreateScenario ? openCreate : undefined}
             />
           }
           renderItem={({ item }) => {
-            const meta = statusMeta(item);
             const locked = isScenarioLocked(item);
             const canEditItem = canEditScenario && !locked;
             const canDeleteItem = canDeleteScenario && !locked;
             const progress = scenarioProgressValue(item, progressByScenarioId);
             return (
-              <Pressable
-                testID={`scenario-card-${item.id}`}
-                onPress={() => router.push(`/scenario/${id}/${item.id}`)}
-                style={({ pressed }) => [styles.card, { opacity: pressed ? 0.9 : 1 }]}
-              >
-                <View style={styles.cardTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle} numberOfLines={2}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.cardMeta}>
-                      {item.academic_year || "-"} · {currencyLabel(item)}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
-                </View>
-
-                <View style={styles.cardProgress}>
-                  <View style={{ flex: 1 }}>
-                    <ProgressBar value={progress} />
-                  </View>
-                  <Text style={styles.progressText}>{Math.round(progress)}%</Text>
-                </View>
-
-                <View style={styles.badgeRow}>
-                  <View style={[styles.stateBadge, { backgroundColor: meta.bg, borderColor: meta.border }]}>
-                    <View style={[styles.dot, { backgroundColor: meta.dot }]} />
-                    <Text style={[styles.stateText, { color: meta.text }]}>{meta.label}</Text>
-                  </View>
-                  {item.expense_split_applied ? (
-                    <View style={[styles.stateBadge, item.expense_split_stale ? styles.staleBadge : styles.okBadge]}>
-                      <Ionicons
-                        name={item.expense_split_stale ? "alert-circle-outline" : "git-branch-outline"}
-                        size={13}
-                        color={item.expense_split_stale ? colors.warn : colors.success}
-                      />
-                      <Text
-                        style={[
-                          styles.stateText,
-                          { color: item.expense_split_stale ? colors.warn : colors.success, letterSpacing: 0 },
-                        ]}
-                      >
-                        {item.expense_split_stale ? "Dagitim eski" : "Dagitim guncel"}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {locked ? (
-                    <View style={styles.lockPill}>
-                      <Ionicons name="lock-closed-outline" size={13} color={colors.textDim} />
-                      <Text style={styles.lockText}>Kilitli</Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                {(canEditScenario || canDeleteScenario || canExpenseSplit) ? (
-                  <View style={styles.actionRow}>
-                    {canExpenseSplit ? (
-                      <Button
-                        label="Gider Paylastir"
-                        icon="git-branch-outline"
-                        variant="secondary"
-                        small
-                        onPress={() => {
-                          setActionErr("");
-                          setDistributionTarget(item);
-                        }}
-                        testID={`scenario-expense-split-${item.id}`}
-                      />
-                    ) : null}
-                    {canEditScenario ? (
-                      <Button
-                        label="Duzenle"
-                        icon="create-outline"
-                        variant="secondary"
-                        small
-                        disabled={!canEditItem}
-                        onPress={() => openEdit(item)}
-                        testID={`scenario-edit-${item.id}`}
-                      />
-                    ) : null}
-                    {canDeleteScenario ? (
-                      <Button
-                        label="Sil"
-                        icon="trash-outline"
-                        variant="danger"
-                        small
-                        disabled={!canDeleteItem}
-                        onPress={() => {
-                          setActionErr("");
-                          setDeleteTarget(item);
-                        }}
-                        testID={`scenario-delete-${item.id}`}
-                      />
-                    ) : null}
-                  </View>
-                ) : null}
-              </Pressable>
+              <ScenarioCard
+                scenario={item}
+                progress={progress}
+                locked={locked}
+                canEditScenario={canEditScenario}
+                canEditItem={canEditItem}
+                canDeleteScenario={canDeleteScenario}
+                canDeleteItem={canDeleteItem}
+                canExpenseSplit={canExpenseSplit}
+                minimal={isPrincipal}
+                onOpen={() => router.push(`/scenario/${id}/${item.id}`)}
+                onExpenseSplit={() => {
+                  setActionErr("");
+                  setDistributionTarget(item);
+                }}
+                onEdit={() => openEdit(item)}
+                onDelete={() => {
+                  setActionErr("");
+                  setDeleteTarget(item);
+                }}
+              />
             );
           }}
         />
@@ -578,19 +545,19 @@ export default function SchoolScreen() {
         onClose={() => {
           if (!savingScenario) setFormOpen(false);
         }}
-        title={formMode === "create" ? "Senaryo Olustur" : "Senaryo Duzenle"}
+        title={formMode === "create" ? "Senaryo Oluştur" : "Senaryo Düzenle"}
         testID="scenario-form-sheet"
       >
         <ScrollView contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled">
           <Input
-            label="Senaryo adi"
+            label="Senaryo adı"
             value={form.name}
             onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
             autoCapitalize="words"
             testID="scenario-form-name"
           />
           <Input
-            label="Akademik yil"
+            label="Akademik yıl"
             value={form.academicYear}
             onChangeText={(value) => setForm((prev) => ({ ...prev, academicYear: value }))}
             placeholder="2026-2027"
@@ -624,7 +591,7 @@ export default function SchoolScreen() {
                   testID="scenario-form-program-local"
                 />
                 <Chip
-                  label="Uluslararasi"
+                  label="Uluslararası"
                   active={form.programType === "international"}
                   onPress={() => setForm((prev) => ({ ...prev, programType: "international" }))}
                   testID="scenario-form-program-international"
@@ -664,7 +631,7 @@ export default function SchoolScreen() {
 
           {actionErr ? <Text style={styles.actionError}>{actionErr}</Text> : null}
           <Button
-            label={formMode === "create" ? "Senaryo Olustur" : "Degisiklikleri Kaydet"}
+            label={formMode === "create" ? "Senaryo Oluştur" : "Değişiklikleri Kaydet"}
             icon={formMode === "create" ? "add-circle-outline" : "save-outline"}
             onPress={submitScenario}
             loading={savingScenario}
@@ -683,12 +650,12 @@ export default function SchoolScreen() {
       >
         <View style={styles.sheetBody}>
           <Text style={styles.deleteText}>
-            {deleteTarget?.name || "Bu senaryo"} kalici olarak silinecek. Bu islem okul silmez.
+            {deleteTarget?.name || "Bu senaryo"} kalıcı olarak silinecek. Bu işlem okul silmez.
           </Text>
           {actionErr ? <Text style={styles.actionError}>{actionErr}</Text> : null}
           <View style={styles.deleteActions}>
             <Button
-              label="Vazgec"
+              label="Vazgeç"
               icon="close-outline"
               variant="secondary"
               onPress={() => setDeleteTarget(null)}
@@ -717,160 +684,436 @@ export default function SchoolScreen() {
         onApplied={load}
         onReverted={load}
       />
-    </SafeAreaView>
+    </ScreenScaffold>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerActionBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerLabel: { color: colors.textMuted, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
-  headerTitle: { color: colors.text, ...font.h3, marginTop: 2 },
-  listHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  sectionTitle: { color: colors.text, ...font.h2 },
-  sectionSub: { color: colors.textDim, ...font.small, marginTop: 2 },
-  addBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  closedNotice: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "#F9731644",
-    backgroundColor: "#F9731614",
-  },
-  closedNoticeText: { color: colors.textDim, ...font.small, flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  errorWrap: { padding: spacing.lg },
+function SummaryStat({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Card style={summaryStyles.card}>
+      <View style={[summaryStyles.icon, { backgroundColor: alpha(colors.primary, 0.12) }]}>
+        <Ionicons name={icon} size={18} color={colors.primary} />
+      </View>
+      <Text style={[summaryStyles.label, { color: colors.textMuted }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={[summaryStyles.value, { color: colors.text }]} numberOfLines={1}>
+        {value}
+      </Text>
+    </Card>
+  );
+}
+
+function NoticeCard({
+  icon,
+  tone,
+  children,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: "warning";
+  children: React.ReactNode;
+}) {
+  const { colors } = useAppTheme();
+  const color = tone === "warning" ? colors.warn : colors.primary;
+  return (
+    <View
+      style={[
+        noticeStyles.wrap,
+        {
+          borderColor: alpha(color, 0.28),
+          backgroundColor: alpha(color, 0.1),
+        },
+      ]}
+    >
+      <Ionicons name={icon} size={17} color={color} />
+      <Text style={[noticeStyles.text, { color: colors.textDim }]}>{children}</Text>
+    </View>
+  );
+}
+
+function ScenarioCard({
+  scenario,
+  progress,
+  locked,
+  canEditScenario,
+  canEditItem,
+  canDeleteScenario,
+  canDeleteItem,
+  canExpenseSplit,
+  minimal = false,
+  onOpen,
+  onExpenseSplit,
+  onEdit,
+  onDelete,
+}: {
+  scenario: Scenario;
+  progress: number;
+  locked: boolean;
+  canEditScenario: boolean;
+  canEditItem: boolean;
+  canDeleteScenario: boolean;
+  canDeleteItem: boolean;
+  canExpenseSplit: boolean;
+  minimal?: boolean;
+  onOpen: () => void;
+  onExpenseSplit: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { colors, isDark } = useAppTheme();
+  const meta = statusMeta(scenario);
+  const accent =
+    meta.tone === "complete"
+      ? colors.success
+      : meta.tone === "revision"
+        ? colors.warn
+        : meta.tone === "review"
+          ? colors.primary
+          : colors.accent;
+  const actionLabel = scenarioActionLabel(scenario, progress, locked);
+
+  if (minimal) {
+    return (
+      <Pressable
+        testID={`scenario-card-${scenario.id}`}
+        onPress={onOpen}
+        style={({ pressed }) => [
+          scenarioStyles.minimalCard,
+          {
+            backgroundColor: colors.bgElev,
+            borderColor: colors.border,
+            opacity: pressed ? 0.9 : 1,
+            transform: [{ translateY: pressed ? 1 : 0 }],
+          },
+          !isDark && shadow.card,
+        ]}
+      >
+        <View style={scenarioStyles.minimalTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[scenarioStyles.title, { color: colors.text }]} numberOfLines={2}>
+              {scenario.name}
+            </Text>
+            <Text style={[scenarioStyles.meta, { color: colors.textDim }]} numberOfLines={1}>
+              {scenario.academic_year || "-"} • {currencyLabel(scenario)} • {programLabel(scenario)}
+            </Text>
+          </View>
+          <StatusPill label={meta.label} tone={meta.tone} icon={meta.icon} style={scenarioStyles.minimalStatus} />
+        </View>
+
+        <View style={scenarioStyles.minimalProgress}>
+          <View style={scenarioStyles.minimalProgressTrack}>
+            <ProgressBar value={progress} height={9} />
+          </View>
+          <Text style={[scenarioStyles.minimalPercent, { color: colors.text }]}>{Math.round(progress)}%</Text>
+        </View>
+
+        <View style={[scenarioStyles.minimalFooter, { borderTopColor: colors.border }]}>
+          <Text style={[scenarioStyles.actionHint, { color: colors.textDim, flex: 1 }]} numberOfLines={2}>
+            {actionLabel}
+          </Text>
+          <View style={[scenarioStyles.minimalCta, { backgroundColor: locked ? colors.bgElev2 : colors.primary, borderColor: locked ? colors.borderStrong : colors.primary }]}>
+            <Text style={[scenarioStyles.minimalCtaText, { color: locked ? colors.primary : colors.primaryText }]}>
+              {locked ? "Takip et" : "Devam et"}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable
+      testID={`scenario-card-${scenario.id}`}
+      onPress={onOpen}
+      style={({ pressed }) => [
+        scenarioStyles.card,
+        {
+          backgroundColor: colors.bgElev,
+          borderColor: colors.border,
+          opacity: pressed ? 0.9 : 1,
+        },
+        !isDark && shadow.card,
+      ]}
+    >
+      <View style={[scenarioStyles.stripe, { backgroundColor: accent }]} />
+      <View style={scenarioStyles.body}>
+        <View style={scenarioStyles.topRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[scenarioStyles.title, { color: colors.text }]} numberOfLines={2}>
+              {scenario.name}
+            </Text>
+            <Text style={[scenarioStyles.meta, { color: colors.textDim }]} numberOfLines={1}>
+              {scenario.academic_year || "-"} • {currencyLabel(scenario)} • {programLabel(scenario)}
+            </Text>
+          </View>
+          <StatusPill label={meta.label} tone={meta.tone} icon={meta.icon} />
+        </View>
+
+        <View style={scenarioStyles.packageRow}>
+          <View style={scenarioStyles.packageMetric}>
+            <Text style={[scenarioStyles.packageValue, { color: colors.text }]}>{Math.round(progress)}%</Text>
+            <Text style={[scenarioStyles.packageLabel, { color: colors.textDim }]}>tamamlanma</Text>
+          </View>
+          <View style={{ flex: 1, gap: spacing.sm }}>
+            <ProgressBar value={progress} height={7} />
+            <Text style={[scenarioStyles.actionHint, { color: colors.textDim }]} numberOfLines={2}>
+              {actionLabel}
+            </Text>
+          </View>
+        </View>
+
+        <View style={scenarioStyles.badgeRow}>
+          {scenario.expense_split_applied ? (
+            <StatusPill
+              label={scenario.expense_split_stale ? "Dağıtım eski" : "Dağıtım güncel"}
+              tone={scenario.expense_split_stale ? "warning" : "success"}
+              icon={scenario.expense_split_stale ? "alert-circle-outline" : "git-branch-outline"}
+            />
+          ) : null}
+          {locked ? <StatusPill label="Kilitli" tone="muted" icon="lock-closed-outline" /> : null}
+          <StatusPill label={`Güncelleme ${formatDate(scenario.updated_at || scenario.created_at)}`} tone="muted" showDot={false} />
+        </View>
+      </View>
+
+      <View style={[scenarioStyles.footer, { backgroundColor: alpha(accent, 0.1), borderTopColor: colors.border }]}>
+        <Pressable
+          onPress={onOpen}
+          style={({ pressed }) => [
+            scenarioStyles.openCta,
+            { backgroundColor: colors.primary, opacity: pressed ? 0.84 : 1 },
+          ]}
+        >
+          <Text style={[scenarioStyles.openCtaText, { color: colors.primaryText }]}>Senaryoyu aç</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.primaryText} />
+        </Pressable>
+
+        {(canEditScenario || canDeleteScenario || canExpenseSplit) ? (
+          <View style={scenarioStyles.actionRow}>
+            {canExpenseSplit ? (
+              <Button
+                label="Gider"
+                icon="git-branch-outline"
+                variant="secondary"
+                small
+                onPress={onExpenseSplit}
+                testID={`scenario-expense-split-${scenario.id}`}
+              />
+            ) : null}
+            {canEditScenario ? (
+              <Button
+                label="Düzenle"
+                icon="create-outline"
+                variant="secondary"
+                small
+                disabled={!canEditItem}
+                onPress={onEdit}
+                testID={`scenario-edit-${scenario.id}`}
+              />
+            ) : null}
+            {canDeleteScenario ? (
+              <Button
+                label="Sil"
+                icon="trash-outline"
+                variant="danger"
+                small
+                disabled={!canDeleteItem}
+                onPress={onDelete}
+                testID={`scenario-delete-${scenario.id}`}
+              />
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+const summaryStyles = StyleSheet.create({
   card: {
-    backgroundColor: colors.bgElev,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  cardTitle: { ...font.h3, color: colors.text },
-  cardMeta: { color: colors.textDim, ...font.small, marginTop: 4 },
-  cardProgress: {
-    flexDirection: "row",
+    flex: 1,
+    minHeight: 92,
     alignItems: "center",
-    gap: 10,
-    marginTop: spacing.md,
+    justifyContent: "center",
+    gap: 4,
+    padding: spacing.sm,
   },
-  progressText: { color: colors.textDim, ...font.small, minWidth: 44, textAlign: "right" },
-  badgeRow: {
-    marginTop: spacing.md,
+  icon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  label: { ...font.tiny },
+  value: { ...font.bodyMd, textAlign: "center" },
+});
+
+const noticeStyles = StyleSheet.create({
+  wrap: {
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
     gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  stateBadge: {
+  text: { ...font.small, flex: 1, lineHeight: 19 },
+});
+
+const scenarioStyles = StyleSheet.create({
+  minimalCard: {
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  minimalTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
+  minimalStatus: { maxWidth: 142 },
+  minimalProgress: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  minimalProgressTrack: { flex: 1, minWidth: 0 },
+  minimalPercent: { ...font.small, width: 42, flexShrink: 0, textAlign: "right", fontWeight: "900" },
+  minimalFooter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    justifyContent: "space-between",
+    gap: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: spacing.md,
+  },
+  minimalCta: {
+    minHeight: 40,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  minimalCtaText: { ...font.small, fontWeight: "900" },
+  card: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  stripe: { height: 8 },
+  body: { padding: spacing.md, gap: spacing.md },
+  topRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+  title: { ...font.h3, fontSize: 18 },
+  meta: { ...font.small, marginTop: 4 },
+  packageRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  packageMetric: { width: 78 },
+  packageValue: { ...font.h2, fontSize: 24 },
+  packageLabel: { ...font.tiny, marginTop: 2 },
+  actionHint: { ...font.small },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  footer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  openCta: {
+    minHeight: 42,
     borderRadius: radius.pill,
-    borderWidth: 1,
-  },
-  okBadge: {
-    borderColor: "#22C55E55",
-    backgroundColor: "#22C55E16",
-  },
-  staleBadge: {
-    borderColor: "#F9731655",
-    backgroundColor: "#F9731614",
-  },
-  lockPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgElev2,
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: spacing.md,
   },
-  lockText: { color: colors.textDim, ...font.tiny, letterSpacing: 0 },
-  dot: { width: 6, height: 6, borderRadius: radius.pill },
-  stateText: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.4 },
+  openCtaText: { ...font.bodyMd, fontWeight: "900" },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: spacing.sm,
-    marginTop: spacing.md,
   },
-  sheetBody: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.lg },
-  inputGroupLabel: {
-    color: colors.textDim,
-    ...font.small,
-    marginBottom: spacing.sm,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  readOnlyBlock: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev2,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  readOnlyLabel: { color: colors.textDim, ...font.small, marginBottom: 4 },
-  readOnlyValue: { color: colors.text, ...font.bodyMd },
-  actionError: { color: colors.danger, ...font.small, marginBottom: spacing.md },
-  deleteText: { color: colors.text, ...font.body, marginBottom: spacing.md },
-  deleteActions: { flexDirection: "row", gap: spacing.sm },
 });
+
+function createStyles(colors: AppThemeColors, isDark: boolean) {
+  return StyleSheet.create({
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.bg,
+    },
+    backBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.pill,
+      backgroundColor: colors.bgElev,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      ...(!isDark ? shadow.soft : {}),
+    },
+    headerActionBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.pill,
+      backgroundColor: colors.bgElev,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      ...(!isDark ? shadow.soft : {}),
+    },
+    headerLabel: { color: colors.textMuted, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
+    headerTitle: { color: colors.text, ...font.h3, marginTop: 2 },
+    center: { flex: 1, alignItems: "center", justifyContent: "center" },
+    errorWrap: { padding: spacing.lg },
+    listHeader: { gap: spacing.lg, marginBottom: spacing.xs },
+    principalListHeader: { marginBottom: spacing.xs },
+    heroFooterText: { color: "rgba(255,255,255,0.86)", ...font.small, lineHeight: 18 },
+    statsRow: { flexDirection: "row", gap: spacing.sm },
+    addBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: radius.pill,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheetBody: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.lg },
+    inputGroupLabel: {
+      color: colors.textDim,
+      ...font.small,
+      marginBottom: spacing.sm,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    chipRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    readOnlyBlock: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.bgElev2,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    readOnlyLabel: { color: colors.textDim, ...font.small, marginBottom: 4 },
+    readOnlyValue: { color: colors.text, ...font.bodyMd },
+    actionError: { color: colors.danger, ...font.small, marginBottom: spacing.md },
+    deleteText: { color: colors.text, ...font.body, marginBottom: spacing.md },
+    deleteActions: { flexDirection: "row", gap: spacing.sm },
+  });
+}

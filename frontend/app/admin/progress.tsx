@@ -19,9 +19,8 @@ import {
   ProgressConfig,
   normalizeProgressConfig,
 } from "@/src/admin/pr09";
-import { colors, font, radius, spacing } from "@/src/theme";
-import { Button, Card, Chip, EmptyState, Input } from "@/src/ui/components";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import { alpha, colors, font, radius, spacing } from "@/src/theme";
+import { Button, Card, Chip, EmptyStateCard, GradientHeroCard, Input, SectionHeader, StatusPill } from "@/src/ui/components";
 
 function goBack(router: ReturnType<typeof useRouter>) {
   if (router.canGoBack()) router.back();
@@ -162,6 +161,9 @@ export default function AdminProgressScreen() {
   }, [activeTab, search]);
 
   const selectedCountry = countries.find((country) => String(country.id) === String(countryId));
+  const enabledSectionsCount = config
+    ? PROGRESS_SECTIONS.filter((section) => config.sections?.[section.id]?.enabled !== false).length
+    : 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]} testID="admin-progress-screen">
@@ -197,9 +199,19 @@ export default function AdminProgressScreen() {
         {err ? <Notice icon="alert-circle-outline" color={colors.danger} text={err} /> : null}
         {message ? <Notice icon="information-circle-outline" color={colors.primary} text={message} /> : null}
 
+        <GradientHeroCard
+          eyebrow="ILERLEME TAKIBI"
+          title={selectedCountry?.name || "Ilerleme kurallari"}
+          subtitle="Modul bazli zorunluluklari ulke kapsaminda yonetin."
+          icon="options-outline"
+          metricValue={String(enabledSectionsCount)}
+          metricLabel="aktif kural"
+          progress={config ? Math.round((enabledSectionsCount / Math.max(PROGRESS_SECTIONS.length, 1)) * 100) : 0}
+          right={<StatusPill label={dirty ? "Kaydedilmedi" : "Guncel"} tone={dirty ? "warning" : "success"} />}
+        />
+
         <Card>
-          <Text style={styles.sectionTitle}>Ulke</Text>
-          <Text style={styles.sectionSub}>Kurallar secili ulke icin kaydedilir.</Text>
+          <SectionHeader title="Ulke" subtitle="Kurallar secili ulke icin kaydedilir." />
           <View style={styles.chipGroup}>
             {countries.map((country) => (
               <Chip
@@ -224,12 +236,18 @@ export default function AdminProgressScreen() {
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : !countryId || !config ? (
-          <EmptyState icon="earth-outline" title="Ulke secin" subtitle="Ilerleme kurallarini duzenlemek icin ulke secin." />
+          <EmptyStateCard
+            icon="earth-outline"
+            title="Ulke secin"
+            subtitle="Ilerleme kurallarini duzenlemek icin ulke secin."
+          />
         ) : (
           <>
             <Card>
-              <Text style={styles.sectionTitle}>{selectedCountry?.name || "Secili ulke"}</Text>
-              <Text style={styles.sectionSub}>Modul bazli zorunluluklari ac/kapat, ALL veya MIN modu sec.</Text>
+              <SectionHeader
+                title={selectedCountry?.name || "Secili ulke"}
+                subtitle="Modul bazli zorunluluklari ac/kapat, ALL veya MIN modu sec."
+              />
               <Input value={search} onChangeText={setSearch} placeholder="Bolum veya anahtar ara..." />
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
                 {PROGRESS_TABS.map((tab) => (
@@ -243,8 +261,18 @@ export default function AdminProgressScreen() {
               const enabled = sectionConfig.enabled !== false;
               const mode = String(sectionConfig.mode || "ALL").toUpperCase() === "MIN" ? "MIN" : "ALL";
               return (
-                <Card key={section.id} testID={`admin-progress-section-${section.id}`}>
+                <Card
+                  key={section.id}
+                  testID={`admin-progress-section-${section.id}`}
+                  style={[
+                    styles.progressSectionCard,
+                    { borderColor: enabled ? alpha(colors.primary, 0.2) : colors.border },
+                  ]}
+                >
                   <View style={styles.cardHead}>
+                    <View style={[styles.sectionIcon, { backgroundColor: enabled ? alpha(colors.primary, 0.1) : colors.bgElev2 }]}>
+                      <Ionicons name={enabled ? "checkmark-circle-outline" : "pause-circle-outline"} size={18} color={enabled ? colors.primary : colors.textMuted} />
+                    </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle}>{section.label}</Text>
                       <Text style={styles.cardSub}>{section.id}</Text>
@@ -283,8 +311,10 @@ export default function AdminProgressScreen() {
             })}
 
             <Card>
-              <Text style={styles.sectionTitle}>Toplu Uygula</Text>
-              <Text style={styles.sectionSub}>Secili ulkenin mevcut kurallarini diger ulkelere kopyalar.</Text>
+              <SectionHeader
+                title="Toplu Uygula"
+                subtitle="Secili ulkenin mevcut kurallarini diger ulkelere kopyalar."
+              />
               <View style={styles.chipGroup}>
                 {countries.filter((country) => String(country.id) !== countryId).map((country) => {
                   const id = String(country.id);
@@ -318,7 +348,6 @@ export default function AdminProgressScreen() {
           </>
         )}
       </ScrollView>
-      <AppBottomNav activeKey="permissions" />
     </SafeAreaView>
   );
 }
@@ -359,6 +388,14 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, ...font.h3 },
   sectionSub: { color: colors.textDim, ...font.small, marginTop: 4, marginBottom: spacing.md },
   cardHead: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  progressSectionCard: { overflow: "hidden" },
+  sectionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cardTitle: { color: colors.text, ...font.bodyMd },
   cardSub: { color: colors.textMuted, ...font.tiny, marginTop: 2 },
   tabs: { gap: spacing.sm, alignItems: "center", paddingVertical: spacing.xs },

@@ -13,9 +13,18 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRouter } from "expo-router";
 
 import { api } from "@/src/api/client";
-import { colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
-import { Button, Card, Chip, EmptyState, Input, Row } from "@/src/ui/components";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import { alpha, colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
+import {
+  Button,
+  Card,
+  Chip,
+  EmptyStateCard,
+  GradientHeroCard,
+  Input,
+  Row,
+  SectionHeader,
+  StatusPill,
+} from "@/src/ui/components";
 
 type AnyRecord = Record<string, any>;
 type YearKey = "y1" | "y2" | "y3";
@@ -112,7 +121,22 @@ export default function AdminReportsScreen() {
         {err ? <Notice icon="alert-circle-outline" color={colors.danger} text={err} /> : null}
         {message ? <Notice icon="information-circle-outline" color={colors.primary} text={message} /> : null}
 
+        <GradientHeroCard
+          eyebrow="RAPOR MERKEZI"
+          title="Rollup görünümü"
+          subtitle={`${academicYear.trim() || defaultYear()} akademik yılı için ülke ve bölge toplamları.`}
+          icon="bar-chart-outline"
+          metricValue={report ? formatInt(regions.length) : "-"}
+          metricLabel="bölge"
+          progress={report ? 100 : 0}
+          right={<StatusPill label={report ? "Yüklendi" : "Hazır"} tone={report ? "success" : "muted"} />}
+        />
+
         <Card>
+          <SectionHeader
+            title="Rapor filtresi"
+            subtitle="Akademik yıl girip rollup verisini yükleyin."
+          />
           <Input
             label="Akademik yil"
             value={academicYear}
@@ -133,7 +157,13 @@ export default function AdminReportsScreen() {
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : !report ? (
-          <EmptyState icon="bar-chart-outline" title="Rapor yuklenmedi" subtitle="Akademik yil girip rollup raporu yukleyin." />
+          <EmptyStateCard
+            icon="bar-chart-outline"
+            title="Rapor yuklenmedi"
+            subtitle="Akademik yil girip rollup raporu yukleyin."
+            actionLabel="Rollup Yukle"
+            onActionPress={load}
+          />
         ) : (
           <>
             <Card>
@@ -148,16 +178,23 @@ export default function AdminReportsScreen() {
                   ))}
                 </View>
               </View>
-              <Row label="Net Ciro" value={money(totals.net_ciro)} />
-              <Row label="Net Gelir" value={money(totals.net_income)} />
-              <Row label="Toplam Gider" value={money(totals.total_expenses)} />
-              <Row label="Net Sonuc" value={money(totals.net_result)} color={Number(totals.net_result || 0) >= 0 ? colors.success : colors.danger} />
+              <View style={styles.kpiGrid}>
+                <KpiTile label="Net Ciro" value={money(totals.net_ciro)} icon="cash-outline" tone="primary" />
+                <KpiTile label="Net Gelir" value={money(totals.net_income)} icon="trending-up-outline" tone="success" />
+                <KpiTile label="Toplam Gider" value={money(totals.total_expenses)} icon="receipt-outline" tone="warning" />
+                <KpiTile
+                  label="Net Sonuc"
+                  value={money(totals.net_result)}
+                  icon={Number(totals.net_result || 0) >= 0 ? "checkmark-circle-outline" : "alert-circle-outline"}
+                  tone={Number(totals.net_result || 0) >= 0 ? "success" : "danger"}
+                />
+              </View>
               <Row label="Ogrenci" value={formatInt(Number(totals.students_total || 0))} />
               <Row label="Kar Marji" value={totals.profitMargin == null ? "-" : formatPct(Number(totals.profitMargin) * 100)} />
             </Card>
 
             {missingNoApproved.length || missingKpis.length ? (
-              <Card style={{ borderColor: "#F9731655" }}>
+              <Card style={styles.warningCard}>
                 <Text style={styles.sectionTitle}>Eksik Veri</Text>
                 <Row label="Onayli senaryo yok" value={formatInt(missingNoApproved.length)} />
                 <Row label="KPI eksik" value={formatInt(missingKpis.length)} />
@@ -170,7 +207,7 @@ export default function AdminReportsScreen() {
               const regionYear = yearNode(region.years || null, activeYear);
               const countries = Array.isArray(region.countries) ? region.countries as AnyRecord[] : [];
               return (
-                <Card key={key}>
+                <Card key={key} style={styles.regionCard}>
                   <Pressable
                     onPress={() => {
                       setExpandedRegions((prev) => {
@@ -212,8 +249,39 @@ export default function AdminReportsScreen() {
           </>
         )}
       </ScrollView>
-      <AppBottomNav activeKey="schools" />
     </SafeAreaView>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: "primary" | "success" | "warning" | "danger";
+}) {
+  const color =
+    tone === "success"
+      ? colors.success
+      : tone === "warning"
+        ? colors.warn
+        : tone === "danger"
+          ? colors.danger
+          : colors.primary;
+  return (
+    <View style={[styles.kpiTile, { backgroundColor: alpha(color, 0.08), borderColor: alpha(color, 0.22) }]}>
+      <View style={[styles.kpiIcon, { backgroundColor: alpha(color, 0.12) }]}>
+        <Ionicons name={icon} size={17} color={color} />
+      </View>
+      <Text style={styles.kpiLabel}>{label}</Text>
+      <Text style={[styles.kpiValue, { color }]} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -255,6 +323,30 @@ const styles = StyleSheet.create({
   exportNote: { color: colors.warn, ...font.small, marginTop: spacing.sm },
   cardHead: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.sm },
   yearChips: { flexDirection: "row", gap: spacing.sm },
+  kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.sm },
+  kpiTile: {
+    flexGrow: 1,
+    flexBasis: "47%",
+    minHeight: 104,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+  },
+  kpiIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+  },
+  kpiLabel: { color: colors.textDim, ...font.tiny, textTransform: "uppercase" },
+  kpiValue: { ...font.bodyMd, marginTop: 4 },
+  warningCard: {
+    borderColor: alpha(colors.warn, 0.34),
+    backgroundColor: alpha(colors.warn, 0.06),
+  },
+  regionCard: { overflow: "hidden" },
   sectionTitle: { color: colors.text, ...font.h3 },
   sectionSub: { color: colors.textDim, ...font.small, marginTop: 4 },
   regionHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

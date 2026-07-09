@@ -1,4 +1,4 @@
-// Admin: Approvals — segmented (Scenarios | Batches) + status filter + review sheet.
+// Admin: Approvals - segmented (Scenarios | Batches) + status filter + review sheet.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -13,20 +13,24 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 
-import {
-  ApprovalBatchRow,
-  BatchItem,
-  ScenarioQueueRow,
-  api,
-} from "@/src/api/client";
-import { colors, font, formatMoney, formatPct, radius, spacing } from "@/src/theme";
-import { Button, Chip, EmptyState } from "@/src/ui/components";
+import { ApprovalBatchRow, BatchItem, ScenarioQueueRow, api } from "@/src/api/client";
+import { alpha, font, formatMoney, formatPct, radius, shadow, spacing } from "@/src/theme";
+import { useAppTheme } from "@/src/theme-provider";
 import { BottomSheet } from "@/src/ui/BottomSheet";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import {
+  Button,
+  Chip,
+  EmptyStateCard,
+  GradientHeroCard,
+  ScreenScaffold,
+  SectionHeader,
+  StatusPill,
+  StatusTone,
+} from "@/src/ui/components";
 
 type ApprovalView = "scenarios" | "batches";
 
@@ -43,7 +47,7 @@ const WORK_IDS = [
   { key: "temel_bilgiler", label: "Temel Bilgiler" },
   { key: "kapasite", label: "Kapasite" },
   { key: "norm.ders_dagilimi", label: "Norm" },
-  { key: "ik.local_staff", label: "IK" },
+  { key: "ik.local_staff", label: "İK" },
   { key: "gelirler.unit_fee", label: "Gelirler" },
   { key: "giderler.isletme", label: "Giderler" },
 ];
@@ -54,25 +58,35 @@ const YEARS = [
   { key: "y3", label: "Yıl 3" },
 ];
 
-function statusStyle(status: string) {
+function statusInfo(status: string): { label: string; tone: StatusTone; icon: keyof typeof Ionicons.glyphMap } {
   switch (status) {
     case "approved":
-      return { label: "Onaylandı", bg: "#22C55E22", border: "#22C55E55", text: "#86EFAC", dot: colors.success };
+      return { label: "Onaylandı", tone: "success", icon: "checkmark-circle-outline" };
     case "sent_for_approval":
-      return { label: "Onay Bekliyor", bg: "#F5B30122", border: "#F5B30155", text: colors.primary, dot: colors.primary };
+      return { label: "Onay Bekliyor", tone: "accent", icon: "time-outline" };
     case "submitted":
-      return { label: "Gönderildi", bg: "#4C8DFF22", border: "#4C8DFF55", text: "#93B5FF", dot: colors.accent };
+      return { label: "Gönderildi", tone: "review", icon: "paper-plane-outline" };
     case "revision_requested":
-      return { label: "Revizyon İstendi", bg: "#F9731622", border: "#F9731655", text: "#FDBA74", dot: colors.warn };
+      return { label: "Revizyon İstendi", tone: "revision", icon: "refresh-circle-outline" };
     case "draft":
     default:
-      return { label: status || "Taslak", bg: colors.bgElev2, border: colors.border, text: colors.textDim, dot: colors.textMuted };
+      return { label: status || "Taslak", tone: "muted", icon: "document-outline" };
   }
+}
+
+function toneAccent(colors: ReturnType<typeof useAppTheme>["colors"], tone: StatusTone) {
+  if (tone === "success" || tone === "complete") return colors.success;
+  if (tone === "warning" || tone === "revision") return colors.warn;
+  if (tone === "danger") return colors.danger;
+  if (tone === "accent") return colors.accent;
+  if (tone === "review" || tone === "primary" || tone === "info") return colors.primary;
+  return colors.textMuted;
 }
 
 export default function AdminApprovalsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors, isDark } = useAppTheme();
   const [view, setView] = useState<ApprovalView>("scenarios");
   const [statusFilter, setStatusFilter] = useState("");
   const [scenarios, setScenarios] = useState<ScenarioQueueRow[]>([]);
@@ -115,74 +129,27 @@ export default function AdminApprovalsScreen() {
     setTimeout(() => setToast(null), 2000);
   }
 
+  const visibleCount = view === "scenarios" ? scenarios.length : batches.length;
+  const pendingCount = view === "scenarios"
+    ? scenarios.filter((row) => ["sent_for_approval", "submitted"].includes(row.scenario.status)).length
+    : batches.filter((row) => ["sent_for_approval", "submitted"].includes(row.status)).length;
+
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]} testID="admin-approvals-screen">
-      <View style={styles.header}>
+    <ScreenScaffold testID="admin-approvals-screen">
+      <View style={[styles.header, { backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
         <Pressable
           testID="admin-approvals-back"
           onPress={() => router.back()}
           hitSlop={12}
-          style={styles.backBtn}
+          style={[styles.backBtn, { backgroundColor: colors.bgElev, borderColor: colors.border }, !isDark && shadow.soft]}
         >
           <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerLabel}>YÖNETİM</Text>
-          <Text style={styles.headerTitle}>Onaylar</Text>
+          <Text style={[styles.headerLabel, { color: colors.textMuted }]}>Yönetim</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Onaylar</Text>
         </View>
       </View>
-
-      {/* Segmented */}
-      <View style={styles.segWrap}>
-        <View style={styles.segmented}>
-          <Pressable
-            testID="admin-approvals-tab-scenarios"
-            onPress={() => setView("scenarios")}
-            style={[styles.segBtn, view === "scenarios" && styles.segBtnActive]}
-          >
-            <Text style={[styles.segText, view === "scenarios" && styles.segTextActive]}>
-              Senaryolar
-            </Text>
-          </Pressable>
-          <Pressable
-            testID="admin-approvals-tab-batches"
-            onPress={() => setView("batches")}
-            style={[styles.segBtn, view === "batches" && styles.segBtnActive]}
-          >
-            <Text style={[styles.segText, view === "batches" && styles.segTextActive]}>
-              Ülke Batch{"'"}leri
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Status filter */}
-      <View style={styles.chipsRow}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" }}
-        >
-          {STATUS_FILTERS.map((s) => (
-            <Chip
-              key={s.key || "all"}
-              label={s.label}
-              active={statusFilter === s.key}
-              onPress={() => setStatusFilter(s.key)}
-              testID={`admin-approvals-filter-${s.key || "all"}`}
-            />
-          ))}
-        </ScrollView>
-      </View>
-
-      {err ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
-          <View style={styles.errBox} testID="admin-approvals-error">
-            <Ionicons name="alert-circle" size={16} color={colors.danger} />
-            <Text style={styles.errText}>{err}</Text>
-          </View>
-        </View>
-      ) : null}
 
       {loading ? (
         <View style={styles.center}>
@@ -194,8 +161,8 @@ export default function AdminApprovalsScreen() {
           keyExtractor={(r) => String(r.scenario.id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + 112,
-            gap: spacing.sm,
+            paddingBottom: insets.bottom + 120,
+            gap: spacing.md,
           }}
           refreshControl={
             <RefreshControl
@@ -207,15 +174,26 @@ export default function AdminApprovalsScreen() {
               tintColor={colors.primary}
             />
           }
+          ListHeaderComponent={
+            <ApprovalsHeader
+              view={view}
+              setView={setView}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              visibleCount={visibleCount}
+              pendingCount={pendingCount}
+              err={err}
+            />
+          }
           ListEmptyComponent={
-            <EmptyState
+            <EmptyStateCard
               icon="checkmark-done-outline"
               title="Sıra boş"
               subtitle="Bu filtreye uyan senaryo bulunmuyor."
             />
           }
           renderItem={({ item }) => (
-            <ScenarioCard row={item} onReview={() => setReviewTarget({ kind: "scenario", row: item })} />
+            <ScenarioApprovalCard row={item} onReview={() => setReviewTarget({ kind: "scenario", row: item })} />
           )}
         />
       ) : (
@@ -224,8 +202,8 @@ export default function AdminApprovalsScreen() {
           keyExtractor={(r) => String(r.batch_id)}
           contentContainerStyle={{
             padding: spacing.lg,
-            paddingBottom: insets.bottom + 112,
-            gap: spacing.sm,
+            paddingBottom: insets.bottom + 120,
+            gap: spacing.md,
           }}
           refreshControl={
             <RefreshControl
@@ -237,15 +215,26 @@ export default function AdminApprovalsScreen() {
               tintColor={colors.primary}
             />
           }
+          ListHeaderComponent={
+            <ApprovalsHeader
+              view={view}
+              setView={setView}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              visibleCount={visibleCount}
+              pendingCount={pendingCount}
+              err={err}
+            />
+          }
           ListEmptyComponent={
-            <EmptyState
+            <EmptyStateCard
               icon="albums-outline"
               title="Batch yok"
               subtitle="Bu filtreye uyan ülke onay batch'i bulunmuyor."
             />
           }
           renderItem={({ item }) => (
-            <BatchCard row={item} onReview={() => setReviewTarget({ kind: "batch", row: item })} />
+            <BatchApprovalCard row={item} onReview={() => setReviewTarget({ kind: "batch", row: item })} />
           )}
         />
       )}
@@ -263,148 +252,294 @@ export default function AdminApprovalsScreen() {
       />
 
       {toast ? (
-        <View style={[styles.toast, { bottom: insets.bottom + 20 }]} testID="admin-approvals-toast">
+        <View
+          style={[
+            styles.toast,
+            {
+              bottom: insets.bottom + 20,
+              backgroundColor: colors.bgElev,
+              borderColor: colors.borderStrong,
+            },
+            !isDark && shadow.card,
+          ]}
+          testID="admin-approvals-toast"
+        >
           <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-          <Text style={styles.toastText}>{toast}</Text>
+          <Text style={[styles.toastText, { color: colors.text }]}>{toast}</Text>
         </View>
       ) : null}
-      <AppBottomNav activeKey="review" />
-    </SafeAreaView>
+    </ScreenScaffold>
   );
 }
 
-// -------- Cards --------
-function ScenarioCard({ row, onReview }: { row: ScenarioQueueRow; onReview: () => void }) {
-  const st = statusStyle(row.scenario.status);
+function ApprovalsHeader({
+  view,
+  setView,
+  statusFilter,
+  setStatusFilter,
+  visibleCount,
+  pendingCount,
+  err,
+}: {
+  view: ApprovalView;
+  setView: (view: ApprovalView) => void;
+  statusFilter: string;
+  setStatusFilter: (status: string) => void;
+  visibleCount: number;
+  pendingCount: number;
+  err: string;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={styles.listHeader}>
+      <GradientHeroCard
+        icon="gift-outline"
+        eyebrow="Onay havuzu"
+        title={view === "scenarios" ? "Senaryo onayları" : "Ülke batch onayları"}
+        subtitle="Onay bekleyen işleri inceleyin, yılları seçin veya revizyon isteyin."
+        metricValue={String(pendingCount)}
+        metricLabel="aksiyon bekleyen"
+        progress={visibleCount ? Math.round((pendingCount / visibleCount) * 100) : 0}
+        footer={
+          <Text style={styles.heroFooterText}>
+            Bu filtrede {visibleCount} kayıt listeleniyor.
+          </Text>
+        }
+      />
+
+      <View style={[styles.segmented, { backgroundColor: colors.bgElev2, borderColor: colors.border }]}>
+        <Pressable
+          testID="admin-approvals-tab-scenarios"
+          onPress={() => setView("scenarios")}
+          style={[styles.segBtn, view === "scenarios" && { backgroundColor: colors.bgElev }]}
+        >
+          <Text style={[styles.segText, { color: view === "scenarios" ? colors.primary : colors.textDim }]}>
+            Senaryolar
+          </Text>
+        </Pressable>
+        <Pressable
+          testID="admin-approvals-tab-batches"
+          onPress={() => setView("batches")}
+          style={[styles.segBtn, view === "batches" && { backgroundColor: colors.bgElev }]}
+        >
+          <Text style={[styles.segText, { color: view === "batches" ? colors.primary : colors.textDim }]}>
+            Ülke Batch'leri
+          </Text>
+        </Pressable>
+      </View>
+
+      <SectionHeader title="Durum Filtreleri" subtitle="Onay kuyruğunu daraltın" />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContent}>
+        {STATUS_FILTERS.map((s) => (
+          <Chip
+            key={s.key || "all"}
+            label={s.label}
+            active={statusFilter === s.key}
+            onPress={() => setStatusFilter(s.key)}
+            testID={`admin-approvals-filter-${s.key || "all"}`}
+          />
+        ))}
+      </ScrollView>
+
+      {err ? (
+        <View
+          style={[
+            styles.errBox,
+            { backgroundColor: alpha(colors.danger, 0.12), borderColor: alpha(colors.danger, 0.34) },
+          ]}
+          testID="admin-approvals-error"
+        >
+          <Ionicons name="alert-circle" size={16} color={colors.danger} />
+          <Text style={[styles.errText, { color: colors.danger }]}>{err}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function ScenarioApprovalCard({ row, onReview }: { row: ScenarioQueueRow; onReview: () => void }) {
+  const { colors, isDark } = useAppTheme();
+  const info = statusInfo(row.scenario.status);
+  const accent = toneAccent(colors, info.tone);
   const currency = row.scenario.local_currency_code || row.scenario.input_currency || "TRY";
   const canReview = ["sent_for_approval", "submitted", "approved"].includes(row.scenario.status);
-  return (
-    <View style={styles.card} testID={`admin-approvals-scenario-${row.scenario.id}`}>
-      <View style={styles.cardHead}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {row.school.name}
-          </Text>
-          <Text style={styles.cardSub} numberOfLines={1}>
-            {row.scenario.name} · {row.scenario.academic_year}
-          </Text>
-          <Text style={styles.cardMeta} numberOfLines={1}>
-            {row.country.name}
-            {row.country.region ? ` · ${row.country.region}` : ""}
-          </Text>
-        </View>
-        <View style={[styles.stateBadge, { backgroundColor: st.bg, borderColor: st.border }]}>
-          <View style={[styles.dot, { backgroundColor: st.dot }]} />
-          <Text style={[styles.stateText, { color: st.text }]}>{st.label}</Text>
-        </View>
-      </View>
+  const missingText = row.scenario.progress_missing_preview || (
+    row.scenario.progress_missing_count ? `${row.scenario.progress_missing_count} eksik alan var.` : "Eksik alan bilgisi yok."
+  );
 
-      {/* KPI mini strip */}
-      <View style={styles.kpiStrip}>
-        {(["y1", "y2", "y3"] as const).map((k) => {
-          const kpi = row.kpis[k];
-          if (!kpi) {
+  return (
+    <View
+      style={[
+        styles.rewardCard,
+        { backgroundColor: colors.bgElev, borderColor: colors.border },
+        !isDark && shadow.card,
+      ]}
+      testID={`admin-approvals-scenario-${row.scenario.id}`}
+    >
+      <View style={styles.cardBody}>
+        <View style={styles.cardHead}>
+          <View style={[styles.cardIcon, { backgroundColor: alpha(accent, 0.12) }]}>
+            <Ionicons name="document-text-outline" size={24} color={accent} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+              {row.school.name}
+            </Text>
+            <Text style={[styles.cardSub, { color: colors.textDim }]} numberOfLines={1}>
+              {row.scenario.name} • {row.scenario.academic_year}
+            </Text>
+            <Text style={[styles.cardMeta, { color: colors.textMuted }]} numberOfLines={1}>
+              {row.country.name}
+              {row.country.region ? ` • ${row.country.region}` : ""}
+            </Text>
+          </View>
+          <StatusPill label={info.label} tone={info.tone} icon={info.icon} />
+        </View>
+
+        <Text style={[styles.explanation, { color: colors.textDim }]} numberOfLines={2}>
+          {missingText}
+        </Text>
+
+        <View style={[styles.kpiStrip, { backgroundColor: colors.bgElev2, borderColor: colors.border }]}>
+          {(["y1", "y2", "y3"] as const).map((k) => {
+            const kpi = row.kpis[k];
+            if (!kpi) {
+              return (
+                <View key={k} style={[styles.kpiCell, { borderRightColor: colors.border }]}>
+                  <Text style={[styles.kpiLabel, { color: colors.textMuted }]}>{k.toUpperCase()}</Text>
+                  <Text style={[styles.kpiMissing, { color: colors.textMuted }]}>-</Text>
+                </View>
+              );
+            }
+            const margin = kpi.net_ciro && kpi.net_result != null ? (kpi.net_result / kpi.net_ciro) * 100 : null;
             return (
-              <View key={k} style={styles.kpiCell}>
-                <Text style={styles.kpiLabel}>{k.toUpperCase()}</Text>
-                <Text style={styles.kpiMissing}>—</Text>
+              <View key={k} style={[styles.kpiCell, { borderRightColor: colors.border }]}>
+                <Text style={[styles.kpiLabel, { color: colors.textMuted }]}>{k.toUpperCase()}</Text>
+                <Text style={[styles.kpiValue, { color: colors.text }]} numberOfLines={1}>
+                  {formatMoney(Number(kpi.net_result || 0), currency)}
+                </Text>
+                <Text style={[styles.kpiSub, { color: colors.textDim }]}>
+                  {margin != null ? formatPct(margin) : "-"}
+                </Text>
               </View>
             );
-          }
-          const margin =
-            kpi.net_ciro && kpi.net_result != null ? (kpi.net_result / kpi.net_ciro) * 100 : null;
-          return (
-            <View key={k} style={styles.kpiCell}>
-              <Text style={styles.kpiLabel}>{k.toUpperCase()}</Text>
-              <Text style={styles.kpiValue} numberOfLines={1}>
-                {formatMoney(Number(kpi.net_result || 0), currency)}
-              </Text>
-              <Text style={styles.kpiSub}>
-                {margin != null ? formatPct(margin) : "-"}
-              </Text>
-            </View>
-          );
-        })}
+          })}
+        </View>
+
+        {row.scenario.review_note ? (
+          <View style={[styles.noteBox, { backgroundColor: colors.bgElev2, borderColor: colors.border }]}>
+            <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.textDim} />
+            <Text style={[styles.noteText, { color: colors.textDim }]} numberOfLines={2}>
+              {row.scenario.review_note}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      {row.scenario.review_note ? (
-        <View style={styles.noteBox}>
-          <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.textDim} />
-          <Text style={styles.noteText} numberOfLines={2}>
-            {row.scenario.review_note}
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.cardFoot}>
-        <Text style={styles.cardMeta}>
-          %{Math.round(row.scenario.progress_pct || 0)} tamamlandı
+      <View style={[styles.ctaBand, { backgroundColor: accent }]}>
+        <Text style={styles.ctaBandText} numberOfLines={2}>
+          %{Math.round(row.scenario.progress_pct || 0)} tamamlandı. Yıl ve modül kapsamını inceleyin.
         </Text>
         {canReview ? (
-          <Button
-            label="İncele"
-            icon="checkmark-done-outline"
-            small
+          <Pressable
+            style={({ pressed }) => [styles.ctaButton, { opacity: pressed ? 0.84 : 1 }]}
             onPress={onReview}
             testID={`admin-approvals-review-${row.scenario.id}`}
-          />
+          >
+            <Text style={[styles.ctaButtonText, { color: accent }]}>İncele</Text>
+            <Ionicons name="chevron-forward" size={15} color={accent} />
+          </Pressable>
         ) : null}
       </View>
     </View>
   );
 }
 
-function BatchCard({ row, onReview }: { row: ApprovalBatchRow; onReview: () => void }) {
-  const st = statusStyle(row.status);
+function BatchApprovalCard({ row, onReview }: { row: ApprovalBatchRow; onReview: () => void }) {
+  const { colors, isDark } = useAppTheme();
+  const info = statusInfo(row.status);
+  const accent = toneAccent(colors, info.tone);
   const canReview = ["submitted", "sent_for_approval"].includes(row.status);
+
   return (
-    <View style={styles.card} testID={`admin-approvals-batch-${row.batch_id}`}>
-      <View style={styles.cardHead}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {row.country.name}
-          </Text>
-          <Text style={styles.cardSub} numberOfLines={1}>
-            Batch #{row.batch_id} · {row.academic_year}
-          </Text>
-          <Text style={styles.cardMeta}>
-            {row.scenario_count} senaryo · {row.school_count} okul
-          </Text>
+    <View
+      style={[
+        styles.rewardCard,
+        { backgroundColor: colors.bgElev, borderColor: colors.border },
+        !isDark && shadow.card,
+      ]}
+      testID={`admin-approvals-batch-${row.batch_id}`}
+    >
+      <View style={styles.cardBody}>
+        <View style={styles.cardHead}>
+          <View style={[styles.cardIcon, { backgroundColor: alpha(accent, 0.12) }]}>
+            <Ionicons name="albums-outline" size={24} color={accent} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+              {row.country.name}
+            </Text>
+            <Text style={[styles.cardSub, { color: colors.textDim }]} numberOfLines={1}>
+              Batch #{row.batch_id} • {row.academic_year}
+            </Text>
+            <Text style={[styles.cardMeta, { color: colors.textMuted }]}>
+              {row.scenario_count} senaryo • {row.school_count} okul
+            </Text>
+          </View>
+          <StatusPill label={info.label} tone={info.tone} icon={info.icon} />
         </View>
-        <View style={[styles.stateBadge, { backgroundColor: st.bg, borderColor: st.border }]}>
-          <View style={[styles.dot, { backgroundColor: st.dot }]} />
-          <Text style={[styles.stateText, { color: st.text }]}>{st.label}</Text>
+
+        <Text style={[styles.explanation, { color: colors.textDim }]} numberOfLines={2}>
+          {row.review_note || `${row.country.name} için toplu onay paketi. İçerik detayları inceleme ekranında listelenir.`}
+        </Text>
+
+        <View style={styles.batchStats}>
+          <MiniMetric icon="school-outline" label="Okul" value={String(row.school_count)} />
+          <MiniMetric icon="layers-outline" label="Senaryo" value={String(row.scenario_count)} />
+          <MiniMetric icon="calendar-outline" label="Tarih" value={new Date(row.created_at).toLocaleDateString("tr-TR")} />
         </View>
       </View>
 
-      {row.review_note ? (
-        <View style={styles.noteBox}>
-          <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.textDim} />
-          <Text style={styles.noteText} numberOfLines={2}>
-            {row.review_note}
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.cardFoot}>
-        <Text style={styles.cardMeta}>
-          {new Date(row.created_at).toLocaleDateString("tr-TR")}
+      <View style={[styles.ctaBand, { backgroundColor: accent }]}>
+        <Text style={styles.ctaBandText} numberOfLines={2}>
+          Ülke batch içeriğini kontrol edip onay veya revizyon kararı verin.
         </Text>
         {canReview ? (
-          <Button
-            label="İncele"
-            icon="checkmark-done-outline"
-            small
+          <Pressable
+            style={({ pressed }) => [styles.ctaButton, { opacity: pressed ? 0.84 : 1 }]}
             onPress={onReview}
             testID={`admin-approvals-batch-review-${row.batch_id}`}
-          />
+          >
+            <Text style={[styles.ctaButtonText, { color: accent }]}>İncele</Text>
+            <Ionicons name="chevron-forward" size={15} color={accent} />
+          </Pressable>
         ) : null}
       </View>
     </View>
   );
 }
 
-// -------- Review sheet --------
+function MiniMetric({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={[styles.metric, { backgroundColor: colors.bgElev2, borderColor: colors.border }]}>
+      <Ionicons name={icon} size={16} color={colors.primary} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>{label}</Text>
+        <Text style={[styles.metricValue, { color: colors.text }]} numberOfLines={1}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
 function ReviewSheet({
   target,
   onClose,
@@ -417,6 +552,7 @@ function ReviewSheet({
   onClose: () => void;
   onDone: (label: string) => void;
 }) {
+  const { colors } = useAppTheme();
   const [action, setAction] = useState<"approve" | "revise">("approve");
   const [note, setNote] = useState("");
   const [years, setYears] = useState<Record<string, boolean>>({ y1: true, y2: true, y3: true });
@@ -491,49 +627,52 @@ function ReviewSheet({
         keyboardShouldPersistTaps="handled"
       >
         {err ? (
-          <View style={styles.errBox} testID="review-error">
+          <View
+            style={[
+              styles.errBox,
+              { backgroundColor: alpha(colors.danger, 0.12), borderColor: alpha(colors.danger, 0.34) },
+            ]}
+            testID="review-error"
+          >
             <Ionicons name="alert-circle" size={16} color={colors.danger} />
-            <Text style={styles.errText}>{err}</Text>
+            <Text style={[styles.errText, { color: colors.danger }]}>{err}</Text>
           </View>
         ) : null}
 
-        {/* Action switch */}
         <View style={styles.actionSwitch}>
           <Pressable
             testID="review-action-approve"
             onPress={() => setAction("approve")}
-            style={[styles.actionBtn, action === "approve" && styles.actionBtnActiveApprove]}
+            style={[
+              styles.actionBtn,
+              { borderColor: colors.border, backgroundColor: colors.bgElev2 },
+              action === "approve" && { backgroundColor: colors.primary, borderColor: colors.primary },
+            ]}
           >
             <Ionicons
               name="checkmark-circle"
               size={16}
-              color={action === "approve" ? "#0B1220" : colors.textDim}
+              color={action === "approve" ? colors.primaryText : colors.textDim}
             />
-            <Text
-              style={{
-                color: action === "approve" ? "#0B1220" : colors.textDim,
-                ...font.bodyMd,
-              }}
-            >
+            <Text style={[styles.actionText, { color: action === "approve" ? colors.primaryText : colors.textDim }]}>
               Onayla
             </Text>
           </Pressable>
           <Pressable
             testID="review-action-revise"
             onPress={() => setAction("revise")}
-            style={[styles.actionBtn, action === "revise" && styles.actionBtnActiveRevise]}
+            style={[
+              styles.actionBtn,
+              { borderColor: colors.border, backgroundColor: colors.bgElev2 },
+              action === "revise" && { backgroundColor: colors.danger, borderColor: colors.danger },
+            ]}
           >
             <Ionicons
               name="return-up-back"
               size={16}
               color={action === "revise" ? "#FFFFFF" : colors.textDim}
             />
-            <Text
-              style={{
-                color: action === "revise" ? "#FFFFFF" : colors.textDim,
-                ...font.bodyMd,
-              }}
-            >
+            <Text style={[styles.actionText, { color: action === "revise" ? "#FFFFFF" : colors.textDim }]}>
               Revizyon İste
             </Text>
           </Pressable>
@@ -541,7 +680,7 @@ function ReviewSheet({
 
         {action === "approve" ? (
           <>
-            <Text style={styles.groupLabel}>DAHIL EDİLECEK YILLAR</Text>
+            <Text style={[styles.groupLabel, { color: colors.textDim }]}>Dahil Edilecek Yıllar</Text>
             <View style={styles.chipGroup}>
               {YEARS.map((y) => (
                 <Chip
@@ -556,7 +695,7 @@ function ReviewSheet({
           </>
         ) : (
           <>
-            <Text style={styles.groupLabel}>REVİZYON GEREKEN MODÜLLER</Text>
+            <Text style={[styles.groupLabel, { color: colors.textDim }]}>Revizyon Gereken Modüller</Text>
             <View style={styles.chipGroup}>
               {WORK_IDS.map((w) => (
                 <Chip
@@ -571,45 +710,48 @@ function ReviewSheet({
           </>
         )}
 
-        <Text style={styles.groupLabel}>
-          NOT {action === "revise" ? "(ZORUNLU)" : "(OPSİYONEL)"}
+        <Text style={[styles.groupLabel, { color: colors.textDim }]}>
+          Not {action === "revise" ? "(Zorunlu)" : "(Opsiyonel)"}
         </Text>
         <TextInput
           testID="review-note-input"
           value={note}
           onChangeText={setNote}
-          placeholder={
-            action === "approve"
-              ? "İsteğe bağlı not..."
-              : "Ne düzeltilmeli? Açıklayın."
-          }
+          placeholder={action === "approve" ? "İsteğe bağlı not..." : "Ne düzeltilmeli? Açıklayın."}
           placeholderTextColor={colors.textMuted}
           multiline
           numberOfLines={4}
-          style={styles.noteInput}
+          style={[
+            styles.noteInput,
+            {
+              backgroundColor: colors.bgElev2,
+              borderColor: colors.border,
+              color: colors.text,
+            },
+          ]}
         />
 
         {target?.kind === "batch" ? (
-          <View style={styles.itemsBox}>
-            <Text style={styles.groupLabel}>BATCH İÇERİĞİ</Text>
+          <View style={[styles.itemsBox, { backgroundColor: colors.bgElev2, borderColor: colors.border }]}>
+            <Text style={[styles.groupLabel, { color: colors.textDim }]}>Batch İçeriği</Text>
             {itemsLoading ? (
               <ActivityIndicator color={colors.primary} />
             ) : batchItems && batchItems.length > 0 ? (
               batchItems.map((it) => (
                 <View key={String(it.scenario_id)} style={styles.batchItem}>
                   <Ionicons name="school-outline" size={14} color={colors.textDim} />
-                  <Text style={styles.batchItemText} numberOfLines={1}>
-                    {it.school_name} — {it.scenario_name}
+                  <Text style={[styles.batchItemText, { color: colors.text }]} numberOfLines={1}>
+                    {it.school_name} - {it.scenario_name}
                   </Text>
                   {it.is_source ? (
-                    <View style={styles.sourceBadge}>
-                      <Text style={styles.sourceBadgeText}>Kaynak</Text>
+                    <View style={[styles.sourceBadge, { backgroundColor: alpha(colors.accent, 0.18), borderColor: colors.accent }]}>
+                      <Text style={[styles.sourceBadgeText, { color: colors.primary }]}>Kaynak</Text>
                     </View>
                   ) : null}
                 </View>
               ))
             ) : (
-              <Text style={styles.cardMeta}>Batch içeriği yok.</Text>
+              <Text style={[styles.cardMeta, { color: colors.textMuted }]}>Batch içeriği yok.</Text>
             )}
           </View>
         ) : null}
@@ -629,7 +771,6 @@ function ReviewSheet({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row",
@@ -637,113 +778,119 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev,
-    borderWidth: 1,
-    borderColor: colors.border,
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerLabel: { color: colors.textMuted, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
-  headerTitle: { color: colors.text, ...font.h3, marginTop: 2 },
-  segWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  headerLabel: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
+  headerTitle: { ...font.h3, marginTop: 2 },
+  listHeader: { gap: spacing.lg, marginBottom: spacing.xs },
+  heroFooterText: { color: "rgba(255,255,255,0.86)", ...font.small, lineHeight: 18 },
   segmented: {
     flexDirection: "row",
-    backgroundColor: colors.bgElev2,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 3,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 4,
   },
   segBtn: {
     flex: 1,
+    minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
   },
-  segBtnActive: { backgroundColor: colors.bgElev },
-  segText: { color: colors.textDim, ...font.bodyMd, fontSize: 14 },
-  segTextActive: { color: colors.text },
-  chipsRow: {
-    height: 56,
-    justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    marginTop: spacing.sm,
-  },
-  card: {
-    padding: spacing.md,
-    backgroundColor: colors.bgElev,
+  segText: { ...font.bodyMd, fontSize: 14 },
+  chipsContent: { gap: spacing.sm, alignItems: "center" },
+  rewardCard: {
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
   },
-  cardHead: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-  cardTitle: { color: colors.text, ...font.h3, fontSize: 16 },
-  cardSub: { color: colors.textDim, ...font.small, marginTop: 2 },
-  cardMeta: { color: colors.textMuted, ...font.tiny, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
-  cardFoot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  stateBadge: {
-    flexDirection: "row",
+  cardBody: { padding: spacing.lg, gap: spacing.md },
+  cardHead: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  cardIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.lg,
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
+    justifyContent: "center",
   },
-  dot: { width: 6, height: 6, borderRadius: 999 },
-  stateText: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.5 },
+  cardTitle: { ...font.h3, fontSize: 18 },
+  cardSub: { ...font.small, marginTop: 2 },
+  cardMeta: { ...font.tiny, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
+  explanation: { ...font.body, lineHeight: 21 },
   kpiStrip: {
     flexDirection: "row",
-    backgroundColor: colors.bgElev2,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
   kpiCell: {
     flex: 1,
     padding: 10,
-    borderRightWidth: 1,
-    borderRightColor: colors.border,
+    borderRightWidth: StyleSheet.hairlineWidth,
     gap: 2,
   },
-  kpiLabel: { color: colors.textMuted, ...font.tiny, letterSpacing: 0.5 },
-  kpiValue: { color: colors.text, ...font.mono, fontSize: 13 },
-  kpiSub: { color: colors.textDim, ...font.tiny, marginTop: 1 },
-  kpiMissing: { color: colors.textMuted, ...font.mono, fontSize: 14 },
+  kpiLabel: { ...font.tiny, letterSpacing: 0.5 },
+  kpiValue: { ...font.mono, fontSize: 13 },
+  kpiSub: { ...font.tiny, marginTop: 1 },
+  kpiMissing: { ...font.mono, fontSize: 14 },
   noteBox: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
     padding: 10,
-    backgroundColor: colors.bgElev2,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  noteText: { color: colors.textDim, ...font.small, flex: 1 },
+  noteText: { ...font.small, flex: 1 },
+  batchStats: { gap: spacing.sm },
+  metric: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+  },
+  metricLabel: { ...font.tiny },
+  metricValue: { ...font.bodyMd, marginTop: 1 },
+  ctaBand: {
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  ctaBandText: { color: "#FFFFFF", ...font.bodyMd, flex: 1, lineHeight: 20 },
+  ctaButton: {
+    minHeight: 40,
+    borderRadius: radius.pill,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  ctaButtonText: { ...font.bodyMd, fontWeight: "900" },
   errBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
     borderRadius: radius.md,
     marginBottom: spacing.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  errText: { ...font.small, flex: 1 },
   actionSwitch: {
     flexDirection: "row",
     gap: spacing.sm,
@@ -757,20 +904,10 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 12,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgElev2,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  actionBtnActiveApprove: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  actionBtnActiveRevise: {
-    backgroundColor: colors.danger,
-    borderColor: colors.danger,
-  },
+  actionText: { ...font.bodyMd },
   groupLabel: {
-    color: colors.textDim,
     ...font.small,
     textTransform: "uppercase",
     letterSpacing: 0.6,
@@ -779,11 +916,8 @@ const styles = StyleSheet.create({
   },
   chipGroup: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: spacing.md },
   noteInput: {
-    backgroundColor: colors.bgElev2,
-    borderColor: colors.border,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
-    color: colors.text,
     padding: 12,
     minHeight: 100,
     textAlignVertical: "top",
@@ -792,37 +926,31 @@ const styles = StyleSheet.create({
   },
   itemsBox: {
     padding: spacing.md,
-    backgroundColor: colors.bgElev2,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
     marginTop: spacing.sm,
     marginBottom: spacing.md,
     gap: 8,
   },
   batchItem: { flexDirection: "row", alignItems: "center", gap: 8 },
-  batchItemText: { color: colors.text, ...font.small, flex: 1 },
+  batchItemText: { ...font.small, flex: 1 },
   sourceBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: "#F5B30122",
-    borderWidth: 1,
-    borderColor: colors.primaryDark,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  sourceBadgeText: { color: colors.primary, ...font.tiny, letterSpacing: 0.5 },
+  sourceBadgeText: { ...font.tiny, letterSpacing: 0.5 },
   toast: {
     position: "absolute",
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: colors.bgElev,
-    borderColor: colors.borderStrong,
-    borderWidth: 1,
-    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  toastText: { color: colors.text, ...font.bodyMd },
+  toastText: { ...font.bodyMd },
 });

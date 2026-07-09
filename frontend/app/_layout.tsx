@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from "@/src/auth/AuthContext";
 import { getHomeRoute } from "@/src/auth/routes";
 import { colors } from "@/src/theme";
 import { ThemeProvider, useAppTheme } from "@/src/theme-provider";
+import { PersistentBottomNav } from "@/src/ui/AppBottomNav";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -49,6 +50,7 @@ function AppRoot() {
               animation: "slide_from_right",
             }}
           />
+          <PersistentBottomNav />
           <AuthRedirector />
         </AuthProvider>
       </SafeAreaProvider>

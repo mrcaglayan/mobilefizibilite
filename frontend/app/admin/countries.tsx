@@ -17,8 +17,8 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { Country, api } from "@/src/api/client";
-import { colors, font, radius, spacing } from "@/src/theme";
-import { Button, EmptyState, Input } from "@/src/ui/components";
+import { alpha, colors, font, radius, spacing } from "@/src/theme";
+import { Button, EmptyStateCard, Input } from "@/src/ui/components";
 import { BottomSheet } from "@/src/ui/BottomSheet";
 
 const REGIONS = ["EMEA", "APAC", "AMERICAS", "GLOBAL"];
@@ -117,7 +117,7 @@ export default function AdminCountriesScreen() {
             </Text>
           }
           ListEmptyComponent={
-            <EmptyState
+            <EmptyStateCard
               icon="earth-outline"
               title="Henüz ülke yok"
               subtitle="Sağ üstteki Ekle düğmesi ile ekleyebilirsiniz."
@@ -312,11 +312,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radius.md,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.accent, 0.16),
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: colors.primaryDark,
+    borderColor: alpha(colors.primary, 0.28),
   },
   flagText: { color: colors.primary, ...font.mono, fontSize: 15 },
   cardTitle: { color: colors.text, ...font.bodyMd, fontSize: 15 },
@@ -325,14 +325,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
+    backgroundColor: alpha(colors.danger, 0.1),
+    borderColor: alpha(colors.danger, 0.28),
     borderWidth: 1,
     padding: 10,
     borderRadius: radius.md,
     marginBottom: spacing.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  errText: { color: colors.danger, ...font.small, flex: 1 },
   groupLabel: {
     color: colors.textDim,
     ...font.small,

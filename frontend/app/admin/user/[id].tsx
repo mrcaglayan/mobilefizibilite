@@ -17,7 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { AdminUser, Country, api } from "@/src/api/client";
-import { colors, font, radius, spacing } from "@/src/theme";
+import { alpha, colors, font, radius, spacing } from "@/src/theme";
 import { Button, Card, Chip, Row } from "@/src/ui/components";
 import { useAuth } from "@/src/auth/AuthContext";
 
@@ -226,11 +226,11 @@ export default function AdminUserDetailScreen() {
                 {user.email}
               </Text>
               <View style={styles.badges}>
-                <View style={[styles.tag, { backgroundColor: "#F5B30122", borderColor: colors.primaryDark }]}>
+                <View style={[styles.tag, { backgroundColor: alpha(colors.primary, 0.08), borderColor: alpha(colors.primary, 0.28) }]}>
                   <Text style={[styles.tagText, { color: colors.primary }]}>{roleLabel(user.role)}</Text>
                 </View>
                 {user.must_reset_password ? (
-                  <View style={[styles.tag, { backgroundColor: "#F9731622", borderColor: "#F9731655" }]}>
+                  <View style={[styles.tag, { backgroundColor: alpha(colors.warn, 0.12), borderColor: alpha(colors.warn, 0.34) }]}>
                     <Ionicons name="key-outline" size={11} color={colors.warn} />
                     <Text style={[styles.tagText, { color: colors.warn }]}>Parola sıfırlama gerekli</Text>
                   </View>
@@ -330,7 +330,7 @@ export default function AdminUserDetailScreen() {
         </Card>
 
         {/* Danger zone */}
-        <Card style={{ borderColor: "#EF444444" }}>
+        <Card style={{ borderColor: alpha(colors.danger, 0.28) }}>
           <Text style={[styles.section, { color: colors.danger }]}>Tehlikeli Bölge</Text>
           <Text style={styles.sectionSub}>
             Bu işlem geri alınamaz. Kullanıcı silinir.
@@ -389,7 +389,7 @@ export default function AdminUserDetailScreen() {
       <Modal transparent visible={confirmDelete} animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <View style={[styles.modalIcon, { backgroundColor: "#EF444422" }]}>
+            <View style={[styles.modalIcon, { backgroundColor: alpha(colors.danger, 0.1) }]}>
               <Ionicons name="alert" size={26} color={colors.danger} />
             </View>
             <Text style={styles.modalTitle}>Kullanıcı silinsin mi?</Text>
@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 999,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.accent, 0.16),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -485,13 +485,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
+    backgroundColor: alpha(colors.danger, 0.1),
+    borderColor: alpha(colors.danger, 0.28),
     borderWidth: 1,
     padding: 10,
     borderRadius: radius.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  errText: { color: colors.danger, ...font.small, flex: 1 },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 999,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.primary, 0.1),
     alignItems: "center",
     justifyContent: "center",
   },

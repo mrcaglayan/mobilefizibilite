@@ -22,9 +22,8 @@ import {
 } from "@/src/admin/pr09";
 import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
-import { colors, font, radius, spacing } from "@/src/theme";
-import { Button, Card, Chip, EmptyState, Input } from "@/src/ui/components";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import { alpha, colors, font, radius, shadow, spacing } from "@/src/theme";
+import { Button, Card, Chip, EmptyStateCard, GradientHeroCard, Input, StatusPill } from "@/src/ui/components";
 
 const ROLES = [
   { key: "user", label: "Kullanici" },
@@ -325,6 +324,17 @@ export default function ManagerManagePermissionsScreen() {
           }
           ListHeaderComponent={
             <View style={{ gap: spacing.md }}>
+              <GradientHeroCard
+                eyebrow="ULKE YETKILERI"
+                title={me?.country_name || "Yetki matrisi"}
+                subtitle="Kendi ulkenizdeki kullanicilara okul veya ulke kapsamli izin atayin."
+                icon="key-outline"
+                metricValue={String(filteredUsers.length)}
+                metricLabel="kullanici"
+                progress={selectedUser ? 100 : 0}
+                right={<StatusPill label={dirty ? "Kaydedilmedi" : "Guncel"} tone={dirty ? "warning" : "success"} />}
+              />
+
               {err ? <Notice icon="alert-circle-outline" color={colors.danger} text={err} /> : null}
               {message ? <Notice icon="information-circle-outline" color={colors.primary} text={message} /> : null}
 
@@ -368,7 +378,7 @@ export default function ManagerManagePermissionsScreen() {
                   }}
                 />
               ) : (
-                <EmptyState icon="key-outline" title="Kullanici secin" subtitle="Yetki duzenlemek icin listeden bir kullanici secin." />
+                <EmptyStateCard icon="key-outline" title="Kullanici secin" subtitle="Yetki duzenlemek icin listeden bir kullanici secin." />
               )}
 
               <Card>
@@ -403,7 +413,7 @@ export default function ManagerManagePermissionsScreen() {
             </View>
           }
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.sm }}
-          ListEmptyComponent={<EmptyState icon="people-outline" title="Kullanici bulunamadi" />}
+          ListEmptyComponent={<EmptyStateCard icon="people-outline" title="Kullanici bulunamadi" />}
           renderItem={({ item }) => {
             const selected = String(item.id) === String(selectedUserId);
             return (
@@ -411,7 +421,7 @@ export default function ManagerManagePermissionsScreen() {
                 onPress={() => selectUser(item)}
                 style={({ pressed }) => [
                   styles.userCard,
-                  selected && { borderColor: colors.primary, backgroundColor: "#F5B30112" },
+                  selected && { borderColor: colors.primary, backgroundColor: alpha(colors.primary, 0.08) },
                   { opacity: pressed ? 0.85 : 1 },
                 ]}
                 testID={`manager-permissions-user-${item.id}`}
@@ -426,7 +436,6 @@ export default function ManagerManagePermissionsScreen() {
           }}
         />
       )}
-      <AppBottomNav activeKey="permissions" />
     </SafeAreaView>
   );
 }
@@ -602,6 +611,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bgElev,
+    ...shadow.soft,
   },
   userTitle: { color: colors.text, ...font.bodyMd },
   userSub: { color: colors.textDim, ...font.small, marginTop: 2 },

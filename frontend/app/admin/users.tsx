@@ -20,9 +20,8 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { AdminUser, Country, api } from "@/src/api/client";
-import { colors, font, radius, spacing } from "@/src/theme";
-import { Button, Chip, EmptyState, Input } from "@/src/ui/components";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import { alpha, colors, font, radius, shadow, spacing } from "@/src/theme";
+import { Button, Chip, EmptyStateCard, GradientHeroCard, Input, SearchHeader } from "@/src/ui/components";
 
 const ROLES = [
   { key: "admin", label: "Yönetici" },
@@ -107,17 +106,26 @@ export default function AdminUsersScreen() {
         />
       </View>
 
-      {/* Search */}
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={18} color={colors.textDim} />
-        <Input
-          value={search}
-          onChangeText={setSearch}
-          placeholder="E-posta veya ad ara..."
-          testID="admin-users-search"
-          style={{ paddingHorizontal: 0 }}
+      <View style={styles.heroWrap}>
+        <GradientHeroCard
+          eyebrow="KULLANICI YONETIMI"
+          title="Ekip dizini"
+          subtitle="Rollere ve ulke kapsamlarina gore kullanicilari yonetin."
+          icon="people-outline"
+          metricValue={String(users.length)}
+          metricLabel="kayitli kullanici"
+          progress={users.length ? 100 : 0}
         />
       </View>
+
+      <SearchHeader
+        value={search}
+        onChangeText={setSearch}
+        placeholder="E-posta veya ad ara..."
+        testID="admin-users-search-header"
+        inputProps={{ testID: "admin-users-search" }}
+        style={styles.searchHeader}
+      />
 
       {/* Role chips */}
       <View style={styles.chipsRow}>
@@ -175,7 +183,7 @@ export default function AdminUsersScreen() {
             />
           }
           ListEmptyComponent={
-            <EmptyState
+            <EmptyStateCard
               icon="people-outline"
               title="Kullanıcı bulunamadı"
               subtitle="Arama kriterinizi değiştirin veya yeni kullanıcı ekleyin."
@@ -207,7 +215,7 @@ export default function AdminUsersScreen() {
                   {item.email}
                 </Text>
                 <View style={styles.cardTags}>
-                  <View style={[styles.tag, { borderColor: colors.primaryDark, backgroundColor: "#F5B30111" }]}>
+                  <View style={[styles.tag, { borderColor: alpha(colors.primary, 0.28), backgroundColor: alpha(colors.primary, 0.08) }]}>
                     <Text style={[styles.tagText, { color: colors.primary }]}>{roleLabel(item.role)}</Text>
                   </View>
                   <View style={styles.tag}>
@@ -231,7 +239,6 @@ export default function AdminUsersScreen() {
           await load();
         }}
       />
-      <AppBottomNav activeKey="users" />
     </SafeAreaView>
   );
 }
@@ -423,13 +430,8 @@ const styles = StyleSheet.create({
   },
   headerLabel: { color: colors.textMuted, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
   headerTitle: { color: colors.text, ...font.h3, marginTop: 2 },
-  searchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
+  heroWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  searchHeader: { minHeight: 68, paddingBottom: spacing.xs },
   chipsRow: {
     height: 56,
     justifyContent: "center",
@@ -445,12 +447,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    ...shadow.soft,
   },
   avatar: {
     width: 44,
     height: 44,
     borderRadius: 999,
-    backgroundColor: "#F5B30122",
+    backgroundColor: alpha(colors.accent, 0.16),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -471,8 +474,8 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 999,
-    backgroundColor: "#F9731622",
-    borderColor: "#F9731655",
+    backgroundColor: alpha(colors.warn, 0.12),
+    borderColor: alpha(colors.warn, 0.34),
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -481,14 +484,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EF444422",
-    borderColor: "#EF444455",
+    backgroundColor: alpha(colors.danger, 0.1),
+    borderColor: alpha(colors.danger, 0.28),
     borderWidth: 1,
     padding: 10,
     borderRadius: radius.md,
     marginBottom: spacing.md,
   },
-  errText: { color: "#FCA5A5", ...font.small, flex: 1 },
+  errText: { color: colors.danger, ...font.small, flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
   sheetWrap: { flex: 1, justifyContent: "flex-end" },
   sheet: {

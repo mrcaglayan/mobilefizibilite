@@ -10,36 +10,47 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ManagerReviewQueueEntry, api } from "@/src/api/client";
-import { useAuth } from "@/src/auth/AuthContext";
 import { can } from "@/src/auth/permissions";
-import { colors, font, radius, spacing } from "@/src/theme";
+import { useAuth } from "@/src/auth/AuthContext";
+import { alpha, font, radius, shadow, spacing } from "@/src/theme";
+import { useAppTheme } from "@/src/theme-provider";
 import { BottomSheet } from "@/src/ui/BottomSheet";
-import { Button, Card, Chip, EmptyState, Input, ProgressBar } from "@/src/ui/components";
-import { AppBottomNav } from "@/src/ui/AppBottomNav";
+import {
+  Button,
+  Chip,
+  EmptyStateCard,
+  GradientHeroCard,
+  Input,
+  ProgressBar,
+  ScreenScaffold,
+  SectionHeader,
+  StatusPill,
+  StatusTone,
+} from "@/src/ui/components";
 
 const WORK_ID_LABELS: Record<string, string> = {
   temel_bilgiler: "Temel Bilgiler",
   kapasite: "Kapasite",
   "norm.ders_dagilimi": "Norm",
-  "ik.local_staff": "IK",
+  "ik.local_staff": "İK",
   "gelirler.unit_fee": "Gelirler",
   "giderler.isletme": "Giderler",
 };
 
 const FILTERS = [
-  { key: "all", label: "Tumu" },
-  { key: "in_review", label: "Incelemede" },
+  { key: "all", label: "Tümü" },
+  { key: "in_review", label: "İncelemede" },
   { key: "revision", label: "Revizyon" },
   { key: "approved", label: "Kontrol Edildi" },
-  { key: "ready", label: "Hazir" },
-  { key: "sent", label: "Merkeze Iletildi" },
-];
+  { key: "ready", label: "Hazır" },
+  { key: "sent", label: "Merkeze İletildi" },
+] as const;
 
-type FilterKey = typeof FILTERS[number]["key"];
+type FilterKey = (typeof FILTERS)[number]["key"];
 
 type ReviewAction = {
   schoolId: string;
@@ -67,36 +78,34 @@ function approvedCount(entry: ManagerReviewQueueEntry) {
   return (entry.requiredItems || []).filter((row) => row.item?.state === "approved").length;
 }
 
-function statusMeta(status?: string | null, sentAt?: string | null) {
+function statusMeta(status?: string | null, sentAt?: string | null): { label: string; tone: StatusTone } {
   switch (status) {
     case "revision_requested":
-      return { label: "Revize istendi", color: colors.warn, bg: "#F9731618" };
+      return { label: "Revize istendi", tone: "revision" };
     case "sent_for_approval":
-      return { label: "Merkeze iletildi", color: colors.accent, bg: "#4C8DFF18" };
+      return { label: "Merkeze iletildi", tone: "review" };
     case "approved":
-      return sentAt
-        ? { label: "Onaylandi", color: colors.success, bg: "#22C55E18" }
-        : { label: "Kontrol edildi", color: colors.success, bg: "#22C55E18" };
+      return sentAt ? { label: "Onaylandı", tone: "complete" } : { label: "Kontrol edildi", tone: "success" };
     case "in_review":
     case "submitted":
-      return { label: "Incelemede", color: colors.accent, bg: "#4C8DFF18" };
+      return { label: "İncelemede", tone: "review" };
     default:
-      return { label: "Taslak", color: colors.textDim, bg: colors.bgElev2 };
+      return { label: "Taslak", tone: "muted" };
   }
 }
 
-function workStateMeta(state?: string | null) {
+function workStateMeta(state?: string | null): { label: string; tone: StatusTone; icon: keyof typeof Ionicons.glyphMap } {
   switch (state) {
     case "approved":
-      return { label: "Kontrol edildi", color: colors.success, bg: "#22C55E18" };
+      return { label: "Kontrol edildi", tone: "success", icon: "checkmark-circle-outline" };
     case "needs_revision":
-      return { label: "Revize istendi", color: colors.warn, bg: "#F9731618" };
+      return { label: "Revize istendi", tone: "warning", icon: "refresh-circle-outline" };
     case "submitted":
-      return { label: "Incelemede", color: colors.accent, bg: "#4C8DFF18" };
+      return { label: "İncelemede", tone: "review", icon: "time-outline" };
     case "in_progress":
-      return { label: "Hazirlaniyor", color: colors.warn, bg: "#F9731618" };
+      return { label: "Hazırlanıyor", tone: "warning", icon: "create-outline" };
     default:
-      return { label: "Baslanmadi", color: colors.textDim, bg: colors.bgElev2 };
+      return { label: "Başlanmadı", tone: "muted", icon: "ellipse-outline" };
   }
 }
 
@@ -124,17 +133,26 @@ function matchesFilter(entry: ManagerReviewQueueEntry, filter: FilterKey) {
   }
 }
 
+function toneAccent(colors: ReturnType<typeof useAppTheme>["colors"], tone: StatusTone) {
+  if (tone === "success" || tone === "complete") return colors.success;
+  if (tone === "warning" || tone === "revision") return colors.warn;
+  if (tone === "danger") return colors.danger;
+  if (tone === "accent") return colors.accent;
+  if (tone === "review" || tone === "primary" || tone === "info") return colors.primary;
+  return colors.textMuted;
+}
+
 export default function ManagerReviewQueueScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
   const { user } = useAuth();
   const canView =
     user?.role === "manager" ||
     user?.role === "accountant" ||
-    (user?.role !== "admin" && (
-      can(user, "page.manage_permissions", "read", { countryId: user?.country_id ?? null }) ||
-      can(user, "page.manage_permissions", "write", { countryId: user?.country_id ?? null })
-    ));
+    (user?.role !== "admin" &&
+      (can(user, "page.manage_permissions", "read", { countryId: user?.country_id ?? null }) ||
+        can(user, "page.manage_permissions", "write", { countryId: user?.country_id ?? null })));
 
   const [rows, setRows] = useState<ManagerReviewQueueEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,7 +175,7 @@ export default function ManagerReviewQueueScreen() {
       const queue = await api.managerGetReviewQueue();
       setRows(queue);
     } catch (error: any) {
-      setErr(error?.message || "Inceleme kuyrugu yuklenemedi.");
+      setErr(error?.message || "İnceleme kuyruğu yüklenemedi.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -181,6 +199,11 @@ export default function ManagerReviewQueueScreen() {
     return rows.filter((row) => matchesFilter(row, filter));
   }, [filter, rows]);
 
+  const submittedCount = rows.filter((row) =>
+    (row.requiredItems || []).some((item) => item.item?.state === "submitted"),
+  ).length;
+  const readyCount = rows.filter((row) => matchesFilter(row, "ready")).length;
+
   function openScenario(entry: ManagerReviewQueueEntry, workId?: string) {
     router.push({
       pathname: "/scenario/[schoolId]/[scenarioId]",
@@ -197,16 +220,17 @@ export default function ManagerReviewQueueScreen() {
     setErr("");
     setMessage("");
     try {
-      const body = action.action === "approve"
-        ? { action: "approve" }
-        : { action: "revise", comment: revisionNote.trim() || undefined };
+      const body =
+        action.action === "approve"
+          ? { action: "approve" }
+          : { action: "revise", comment: revisionNote.trim() || undefined };
       await api.reviewWorkItem(action.schoolId, action.scenarioId, action.workId, body);
       await load();
       setReviewAction(null);
       setRevisionNote("");
-      setMessage(action.action === "approve" ? "Modul kontrol edildi." : "Revizyon istendi.");
+      setMessage(action.action === "approve" ? "Modül kontrol edildi." : "Revizyon istendi.");
     } catch (error: any) {
-      setErr(error?.message || "Islem tamamlanamadi.");
+      setErr(error?.message || "İşlem tamamlanamadı.");
     } finally {
       setActionBusy(false);
     }
@@ -214,32 +238,45 @@ export default function ManagerReviewQueueScreen() {
 
   if (!canView) {
     return (
-      <SafeAreaView style={styles.safe} edges={["top"]} testID="manager-review-queue-denied">
-        <View style={styles.header}>
-          <Pressable onPress={() => goBack(router)} hitSlop={12} style={styles.backBtn}>
+      <ScreenScaffold testID="manager-review-queue-denied">
+        <View style={[styles.header, { backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
+          <Pressable
+            onPress={() => goBack(router)}
+            hitSlop={12}
+            style={[styles.backBtn, { backgroundColor: colors.bgElev, borderColor: colors.border }, !isDark && shadow.soft]}
+          >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerLabel}>MUDUR YONETIMI</Text>
-            <Text style={styles.headerTitle}>Yetki Yok</Text>
+            <Text style={[styles.headerLabel, { color: colors.textMuted }]}>Müdür Yönetimi</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Yetki Yok</Text>
           </View>
         </View>
         <View style={{ padding: spacing.lg }}>
-          <Notice icon="lock-closed-outline" color={colors.warn} text="Bu ekran manager/accountant rolu veya page.manage_permissions okuma yetkisi gerektirir." />
+          <EmptyStateCard
+            icon="lock-closed-outline"
+            title="Bu ekran için yetki gerekir"
+            subtitle="Manager/accountant rolü veya page.manage_permissions okuma yetkisi gerekiyor."
+          />
         </View>
-      </SafeAreaView>
+      </ScreenScaffold>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]} testID="manager-review-queue-screen">
-      <View style={styles.header}>
-        <Pressable onPress={() => goBack(router)} hitSlop={12} style={styles.backBtn} testID="manager-review-queue-back">
+    <ScreenScaffold testID="manager-review-queue-screen">
+      <View style={[styles.header, { backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
+        <Pressable
+          onPress={() => goBack(router)}
+          hitSlop={12}
+          style={[styles.backBtn, { backgroundColor: colors.bgElev, borderColor: colors.border }, !isDark && shadow.soft]}
+          testID="manager-review-queue-back"
+        >
           <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerLabel}>MUDUR YONETIMI</Text>
-          <Text style={styles.headerTitle}>Inceleme Kuyrugu</Text>
+          <Text style={[styles.headerLabel, { color: colors.textMuted }]}>Müdür Yönetimi</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>İnceleme Kuyruğu</Text>
         </View>
         <Pressable
           onPress={() => {
@@ -247,10 +284,10 @@ export default function ManagerReviewQueueScreen() {
             load();
           }}
           hitSlop={10}
-          style={styles.iconBtn}
+          style={[styles.iconBtn, { backgroundColor: colors.bgElev, borderColor: colors.border }, !isDark && shadow.soft]}
           testID="manager-review-queue-refresh"
         >
-          <Ionicons name="refresh-outline" size={18} color={colors.textDim} />
+          <Ionicons name="refresh-outline" size={19} color={colors.primary} />
         </Pressable>
       </View>
 
@@ -273,9 +310,26 @@ export default function ManagerReviewQueueScreen() {
             />
           }
           ListHeaderComponent={
-            <View style={{ gap: spacing.md }}>
+            <View style={styles.listHeader}>
+              <GradientHeroCard
+                icon="checkmark-done-outline"
+                eyebrow="Kontrol merkezi"
+                title={`${rows.length} senaryo incelemede`}
+                subtitle="Okullardan gelen modülleri kontrol edin, revizyon isteyin veya senaryoyu açın."
+                metricValue={String(submittedCount)}
+                metricLabel="aksiyon bekleyen"
+                progress={rows.length ? Math.round((readyCount / rows.length) * 100) : 0}
+                footer={
+                  <Text style={styles.heroFooterText}>
+                    {readyCount ? `${readyCount} senaryo merkeze iletilmeye hazır.` : "Hazır senaryo bulunmuyor."}
+                  </Text>
+                }
+              />
+
               {err ? <Notice icon="alert-circle-outline" color={colors.danger} text={err} /> : null}
               {message ? <Notice icon="information-circle-outline" color={colors.primary} text={message} /> : null}
+
+              <SectionHeader title="Filtreler" subtitle="Duruma göre inceleme kuyruğu" />
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
                 {FILTERS.map((item) => (
                   <Chip
@@ -288,8 +342,14 @@ export default function ManagerReviewQueueScreen() {
               </ScrollView>
             </View>
           }
-          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}
-          ListEmptyComponent={<EmptyState icon="checkmark-done-outline" title="Inceleme kaydi yok" subtitle="Bu filtrede kontrol bekleyen senaryo bulunmuyor." />}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 120, gap: spacing.md }}
+          ListEmptyComponent={
+            <EmptyStateCard
+              icon="checkmark-done-outline"
+              title="İnceleme kaydı yok"
+              subtitle="Bu filtrede kontrol bekleyen senaryo bulunmuyor."
+            />
+          }
           renderItem={({ item }) => (
             <ReviewCard
               entry={item}
@@ -324,25 +384,27 @@ export default function ManagerReviewQueueScreen() {
         onClose={() => {
           if (!actionBusy) setReviewAction(null);
         }}
-        title={reviewAction?.action === "approve" ? "Modulu Kontrol Et" : "Revizyon Iste"}
+        title={reviewAction?.action === "approve" ? "Modülü Kontrol Et" : "Revizyon İste"}
         testID="manager-review-action-sheet"
       >
         <View style={styles.sheetBody}>
-          <Text style={styles.sheetTitle}>{reviewAction?.label || "-"}</Text>
+          <Text style={[styles.sheetTitle, { color: colors.text }]}>{reviewAction?.label || "-"}</Text>
           {reviewAction?.action === "revise" ? (
             <Input
               label="Revizyon notu"
               value={revisionNote}
               onChangeText={setRevisionNote}
               multiline
-              placeholder="Eksik veya duzeltilmesi gereken alanlari yazin..."
+              placeholder="Eksik veya düzeltilmesi gereken alanları yazın..."
               testID="manager-review-revision-note"
             />
           ) : (
-            <Text style={styles.sheetSub}>Bu modul kontrol edildi olarak isaretlenecek.</Text>
+            <Text style={[styles.sheetSub, { color: colors.textDim }]}>
+              Bu modül kontrol edildi olarak işaretlenecek.
+            </Text>
           )}
           <Button
-            label={reviewAction?.action === "approve" ? "Onayla" : "Revizyon Iste"}
+            label={reviewAction?.action === "approve" ? "Onayla" : "Revizyon İste"}
             icon={reviewAction?.action === "approve" ? "checkmark-circle-outline" : "refresh-circle-outline"}
             variant={reviewAction?.action === "approve" ? "primary" : "danger"}
             loading={actionBusy}
@@ -354,8 +416,7 @@ export default function ManagerReviewQueueScreen() {
           />
         </View>
       </BottomSheet>
-      <AppBottomNav activeKey="review" />
-    </SafeAreaView>
+    </ScreenScaffold>
   );
 }
 
@@ -372,88 +433,134 @@ function ReviewCard({
   onApprove: (workId: string, label: string) => void;
   onRevise: (workId: string, label: string) => void;
 }) {
+  const { colors, isDark } = useAppTheme();
   const total = requiredTotal(entry);
   const approved = approvedCount(entry);
   const progress = total > 0 ? Math.round((approved / total) * 100) : 0;
   const meta = statusMeta(entry.scenario.status, entry.scenario.sent_at);
+  const accent = toneAccent(colors, meta.tone);
+  const submitted = (entry.requiredItems || []).filter((row) => row.item?.state === "submitted").length;
+  const explanation = submitted
+    ? `${submitted} modül kontrol bekliyor.`
+    : total > 0
+      ? `${approved}/${total} modül kontrol edildi.`
+      : "Bu senaryo için zorunlu modül bilgisi bulunmuyor.";
+
   return (
-    <Card testID={`manager-review-card-${entry.scenario.id}`}>
-      <View style={styles.cardTop}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle}>{entry.scenario.name}</Text>
-          <Text style={styles.cardSub}>{entry.school.name} · {entry.scenario.academic_year || "-"}</Text>
+    <View
+      testID={`manager-review-card-${entry.scenario.id}`}
+      style={[
+        styles.rewardCard,
+        { backgroundColor: colors.bgElev, borderColor: colors.border },
+        !isDark && shadow.card,
+      ]}
+    >
+      <View style={styles.rewardBody}>
+        <View style={styles.cardTop}>
+          <View style={[styles.cardIcon, { backgroundColor: alpha(accent, 0.12) }]}>
+            <Ionicons name="clipboard-outline" size={24} color={accent} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+              {entry.scenario.name}
+            </Text>
+            <Text style={[styles.cardSub, { color: colors.textDim }]} numberOfLines={1}>
+              {entry.school.name} • {entry.scenario.academic_year || "-"}
+            </Text>
+          </View>
+          <StatusPill label={meta.label} tone={meta.tone} />
         </View>
-        <View style={[styles.statePill, { backgroundColor: meta.bg, borderColor: `${meta.color}55` }]}>
-          <Text style={[styles.stateText, { color: meta.color }]}>{meta.label}</Text>
+
+        <Text style={[styles.explanation, { color: colors.textDim }]}>{explanation}</Text>
+
+        <View style={styles.progressRow}>
+          <View style={{ flex: 1 }}>
+            <ProgressBar value={progress} height={7} />
+          </View>
+          <Text style={[styles.progressText, { color: colors.textDim }]}>
+            {approved}/{total || 0}
+          </Text>
+        </View>
+
+        <View style={styles.workList}>
+          {(entry.requiredItems || []).map((row) => {
+            const workId = String(row.workId || row.item?.work_id || "");
+            const label = WORK_ID_LABELS[workId] || workId || "Modül";
+            const state = row.item?.state || "not_started";
+            const workMeta = workStateMeta(state);
+            const canReview = state === "submitted";
+            return (
+              <View key={workId} style={[styles.workRow, { backgroundColor: colors.bgElev2, borderColor: colors.border }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.workTitle, { color: colors.text }]} numberOfLines={1}>
+                    {label}
+                  </Text>
+                  <Text style={[styles.workMeta, { color: colors.textDim }]} numberOfLines={2}>
+                    {row.item?.manager_comment || workMeta.label}
+                  </Text>
+                </View>
+                <StatusPill label={workMeta.label} tone={workMeta.tone} icon={workMeta.icon} />
+                <View style={styles.workActions}>
+                  <Pressable
+                    onPress={() => onOpenModule(workId)}
+                    hitSlop={8}
+                    style={[styles.workIconBtnNeutral, { backgroundColor: colors.bgElev, borderColor: colors.border }]}
+                  >
+                    <Ionicons name="open-outline" size={17} color={colors.textDim} />
+                  </Pressable>
+                  {canReview ? (
+                    <>
+                      <Pressable
+                        onPress={() => onApprove(workId, label)}
+                        hitSlop={8}
+                        style={[styles.workIconBtn, { borderColor: alpha(colors.success, 0.34), backgroundColor: alpha(colors.success, 0.12) }]}
+                      >
+                        <Ionicons name="checkmark-outline" size={17} color={colors.success} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onRevise(workId, label)}
+                        hitSlop={8}
+                        style={[styles.workIconBtn, { borderColor: alpha(colors.danger, 0.34), backgroundColor: alpha(colors.danger, 0.12) }]}
+                      >
+                        <Ionicons name="refresh-outline" size={17} color={colors.danger} />
+                      </Pressable>
+                    </>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
         </View>
       </View>
 
-      <View style={styles.progressRow}>
-        <View style={{ flex: 1 }}>
-          <ProgressBar value={progress} />
-        </View>
-        <Text style={styles.progressText}>{approved}/{total || 0}</Text>
+      <View style={[styles.ctaBand, { backgroundColor: accent }]}>
+        <Text style={styles.ctaBandText} numberOfLines={2}>
+          Modül detayını açıp gerekli kontrolleri tamamlayın.
+        </Text>
+        <Pressable
+          onPress={onOpen}
+          style={({ pressed }) => [styles.ctaButton, { opacity: pressed ? 0.84 : 1 }]}
+          testID={`manager-review-open-${entry.scenario.id}`}
+        >
+          <Text style={[styles.ctaButtonText, { color: accent }]}>Senaryoyu Aç</Text>
+          <Ionicons name="chevron-forward" size={15} color={accent} />
+        </Pressable>
       </View>
-
-      <View style={styles.workList}>
-        {(entry.requiredItems || []).map((row) => {
-          const workId = String(row.workId || row.item?.work_id || "");
-          const label = WORK_ID_LABELS[workId] || workId || "Modul";
-          const state = row.item?.state || "not_started";
-          const workMeta = workStateMeta(state);
-          const canReview = state === "submitted";
-          return (
-            <View key={workId} style={styles.workRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.workTitle}>{label}</Text>
-                <Text style={styles.workMeta}>{row.item?.manager_comment || workMeta.label}</Text>
-              </View>
-              <View style={[styles.smallPill, { backgroundColor: workMeta.bg, borderColor: `${workMeta.color}55` }]}>
-                <Text style={[styles.smallPillText, { color: workMeta.color }]}>{workMeta.label}</Text>
-              </View>
-              <View style={styles.workActions}>
-                <Pressable onPress={() => onOpenModule(workId)} hitSlop={8} style={styles.workIconBtnNeutral}>
-                  <Ionicons name="open-outline" size={17} color={colors.textDim} />
-                </Pressable>
-                {canReview ? (
-                  <>
-                    <Pressable onPress={() => onApprove(workId, label)} hitSlop={8} style={styles.workIconBtn}>
-                      <Ionicons name="checkmark-outline" size={17} color={colors.success} />
-                    </Pressable>
-                    <Pressable onPress={() => onRevise(workId, label)} hitSlop={8} style={styles.workIconBtnDanger}>
-                      <Ionicons name="refresh-outline" size={17} color={colors.danger} />
-                    </Pressable>
-                  </>
-                ) : null}
-              </View>
-            </View>
-          );
-        })}
-      </View>
-
-      <Button
-        label="Senaryoyu Ac"
-        icon="open-outline"
-        variant="secondary"
-        onPress={onOpen}
-        style={{ marginTop: spacing.md }}
-        testID={`manager-review-open-${entry.scenario.id}`}
-      />
-    </Card>
+    </View>
   );
 }
 
 function Notice({ icon, color, text }: { icon: keyof typeof Ionicons.glyphMap; color: string; text: string }) {
+  const { colors } = useAppTheme();
   return (
-    <View style={[styles.notice, { borderColor: `${color}55`, backgroundColor: `${color}18` }]}>
-      <Ionicons name={icon} size={16} color={color} />
-      <Text style={styles.noticeText}>{text}</Text>
+    <View style={[styles.notice, { borderColor: alpha(color, 0.34), backgroundColor: alpha(color, 0.12) }]}>
+      <Ionicons name={icon} size={17} color={color} />
+      <Text style={[styles.noticeText, { color: colors.text }]}>{text}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row",
@@ -461,63 +568,57 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev,
-    borderWidth: 1,
-    borderColor: colors.border,
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
   iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElev,
-    borderWidth: 1,
-    borderColor: colors.border,
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerLabel: { color: colors.textMuted, ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
-  headerTitle: { color: colors.text, ...font.h3, marginTop: 2 },
+  headerLabel: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.6 },
+  headerTitle: { ...font.h3, marginTop: 2 },
+  listHeader: { gap: spacing.lg },
+  heroFooterText: { color: "rgba(255,255,255,0.86)", ...font.small, lineHeight: 18 },
   filterRow: { gap: spacing.sm, alignItems: "center" },
-  cardTop: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  cardTitle: { color: colors.text, ...font.h3 },
-  cardSub: { color: colors.textDim, ...font.small, marginTop: 3 },
-  statePill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-    borderRadius: radius.pill,
-    borderWidth: 1,
+  rewardCard: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
   },
-  stateText: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.4 },
-  progressRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md },
-  progressText: { color: colors.textDim, ...font.small, minWidth: 48, textAlign: "right" },
-  workList: { gap: spacing.sm, marginTop: spacing.md },
+  rewardBody: { padding: spacing.lg, gap: spacing.md },
+  cardTop: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  cardIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardTitle: { ...font.h3, fontSize: 18 },
+  cardSub: { ...font.small, marginTop: 3 },
+  explanation: { ...font.body, lineHeight: 21 },
+  progressRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  progressText: { ...font.small, minWidth: 48, textAlign: "right" },
+  workList: { gap: spacing.sm },
   workRow: {
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgElev2,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  workTitle: { color: colors.text, ...font.bodyMd },
-  workMeta: { color: colors.textDim, ...font.small, marginTop: 2 },
-  smallPill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-  },
-  smallPillText: { ...font.tiny, textTransform: "uppercase", letterSpacing: 0.3 },
+  workTitle: { ...font.bodyMd },
+  workMeta: { ...font.small, marginTop: 2 },
   workActions: { flexDirection: "row", gap: spacing.sm },
   workIconBtnNeutral: {
     width: 36,
@@ -525,9 +626,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgElev,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   workIconBtn: {
     width: 36,
@@ -535,30 +634,37 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#22C55E55",
-    backgroundColor: "#22C55E18",
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  workIconBtnDanger: {
-    width: 36,
-    height: 34,
-    borderRadius: radius.md,
+  ctaBand: {
+    minHeight: 74,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#EF444455",
-    backgroundColor: "#EF444418",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
+  ctaBandText: { color: "#FFFFFF", ...font.bodyMd, flex: 1, lineHeight: 20 },
+  ctaButton: {
+    minHeight: 40,
+    borderRadius: radius.pill,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  ctaButtonText: { ...font.small, fontWeight: "900" },
   sheetBody: { padding: spacing.lg, gap: spacing.md },
-  sheetTitle: { color: colors.text, ...font.h3 },
-  sheetSub: { color: colors.textDim, ...font.body },
+  sheetTitle: { ...font.h3 },
+  sheetSub: { ...font.body },
   notice: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    padding: spacing.sm,
-    borderWidth: 1,
-    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
   },
-  noticeText: { color: colors.text, ...font.small, flex: 1 },
+  noticeText: { ...font.small, flex: 1 },
 });

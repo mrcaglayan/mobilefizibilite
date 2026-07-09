@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Inputs, Scenario } from "@/src/api/client";
@@ -12,8 +12,7 @@ import {
 } from "@/src/scenario/discountsAdapter";
 import { getAtPath, PathToken, setAtPath } from "@/src/scenario/patch";
 import { colors, font, formatInt, formatMoney, formatPct, radius, spacing } from "@/src/theme";
-import { Button, Card, Chip } from "@/src/ui/components";
-import { FinancialNumberInput, FormRow, FormSection, ReadonlyValueRow } from "@/src/ui/financialForm";
+import { Button, Card } from "@/src/ui/components";
 
 type Props = {
   value: unknown;
@@ -25,6 +24,11 @@ type Props = {
   saving: boolean;
   onDirtyPathsChange: (paths: string[]) => void;
   onSave: (draft: DiscountsDraft) => Promise<void>;
+  compact?: boolean;
+  stickyActions?: boolean;
+  stickyBottomInset?: number;
+  stickyScrollHeight?: number;
+  onLivePreviewChange?: (draft: DiscountRow[], preview: DiscountsLivePreview) => void;
 };
 
 type IncomeYear = {
@@ -164,6 +168,39 @@ function discountAmount(row: DiscountRow, yearKey: DiscountYearKey, income: Inco
   return income.avgTuitionFee * count * clamp(value, 0, 1);
 }
 
+export type DiscountsLivePreview = {
+  counts: Record<DiscountYearKey, number>;
+  amounts: Record<DiscountYearKey, number>;
+  weightedPct: Record<DiscountYearKey, number>;
+  incomeYears: Record<DiscountYearKey, IncomeYear>;
+};
+
+export function computeDiscountsLivePreview(inputs: Inputs | null, discounts: unknown): DiscountsLivePreview {
+  const incomeYears = computeIncomeYears(inputs);
+  const rows = normalizeDiscountsDraft(discounts);
+  return rows.reduce(
+    (acc, row) => {
+      DISCOUNT_YEAR_KEYS.forEach((yearKey) => {
+        const income = incomeYears[yearKey];
+        const count = countForRow(row, yearKey, income.tuitionStudents);
+        const valueRow = effectiveValueForRow(row, yearKey, income);
+        const amount = discountAmount(row, yearKey, income, count);
+        acc.counts[yearKey] += count;
+        acc.amounts[yearKey] += amount;
+        if (modeOf(row) === "percent") acc.weightedPct[yearKey] += count * clamp(valueRow, 0, 1);
+      });
+      return acc;
+    },
+    {
+      counts: { y1: 0, y2: 0, y3: 0 },
+      amounts: { y1: 0, y2: 0, y3: 0 },
+      weightedPct: { y1: 0, y2: 0, y3: 0 },
+      incomeYears,
+    } as DiscountsLivePreview,
+  );
+}
+
+
 export function DiscountsEditor({
   value,
   inputs,
@@ -174,12 +211,19 @@ export function DiscountsEditor({
   saving,
   onDirtyPathsChange,
   onSave,
+  onLivePreviewChange,
+  stickyActions = false,
+  stickyBottomInset = 0,
+  stickyScrollHeight,
 }: Props) {
+  const [activeYear, setActiveYear] = React.useState<DiscountYearKey>("y1");
   const [draft, setDraft] = React.useState<DiscountRow[]>(() => normalizeDiscountsDraft(value));
   const [dirtyPaths, setDirtyPaths] = React.useState<string[]>([]);
   const [message, setMessage] = React.useState("");
   const incomeYears = React.useMemo(() => computeIncomeYears(inputs), [inputs]);
   const isDirty = dirtyPaths.length > 0;
+  const stickyActionBottom = Math.max(spacing.sm, stickyBottomInset - spacing.sm);
+  const stickyActionPadding = stickyActionBottom + 84;
 
   React.useEffect(() => {
     setDraft(normalizeDiscountsDraft(value));
@@ -192,10 +236,7 @@ export function DiscountsEditor({
   }, [dirtyPaths, onDirtyPathsChange]);
 
   function markDirty(paths: readonly PathToken[][]) {
-    setDirtyPaths((prev) => {
-      const next = Array.from(new Set([...prev, ...paths.map(dirtyPath)]));
-      return next;
-    });
+    setDirtyPaths((prev) => Array.from(new Set([...prev, ...paths.map(dirtyPath)])));
   }
 
   function patchRow(index: number, updates: Record<string, unknown>) {
@@ -239,9 +280,9 @@ export function DiscountsEditor({
       await onSave({ discounts: draft, dirtyPaths });
       setDirtyPaths([]);
       onDirtyPathsChange([]);
-      setMessage("Indirimler kaydedildi.");
+      setMessage("İndirimler kaydedildi.");
     } catch (e: any) {
-      setMessage(e?.message || "Indirimler kaydedilemedi.");
+      setMessage(e?.message || "İndirimler kaydedilemedi.");
     }
   }
 
@@ -252,83 +293,154 @@ export function DiscountsEditor({
     setMessage("");
   }
 
-  const totals = draft.reduce(
-    (acc, row) => {
-      DISCOUNT_YEAR_KEYS.forEach((yearKey) => {
-        const income = incomeYears[yearKey];
-        const count = countForRow(row, yearKey, income.tuitionStudents);
-        const valueRow = effectiveValueForRow(row, yearKey, income);
-        const amount = discountAmount(row, yearKey, income, count);
-        acc.counts[yearKey] += count;
-        acc.amounts[yearKey] += amount;
-        if (modeOf(row) === "percent") acc.weightedPct[yearKey] += count * clamp(valueRow, 0, 1);
-      });
-      return acc;
-    },
-    {
-      counts: { y1: 0, y2: 0, y3: 0 },
-      amounts: { y1: 0, y2: 0, y3: 0 },
-      weightedPct: { y1: 0, y2: 0, y3: 0 },
-    } as {
-      counts: Record<DiscountYearKey, number>;
-      amounts: Record<DiscountYearKey, number>;
-      weightedPct: Record<DiscountYearKey, number>;
-    },
+  const livePreview = React.useMemo(
+    () => computeDiscountsLivePreview(inputs, draft),
+    [draft, inputs],
   );
+  const totals = livePreview;
 
-  const editableHint = canEdit
-    ? "Indirim satirlari leaf-field patch olarak kaydedilir; satir veya discounts dizisi degistirilmez."
-    : disabledReason;
+  React.useEffect(() => {
+    onLivePreviewChange?.(draft, livePreview);
+  }, [draft, livePreview, onLivePreviewChange]);
 
-  return (
-    <Card testID="discounts-editor">
-      <View style={styles.editorHead}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Burs ve Indirimler</Text>
-          <Text style={styles.subtitle}>{editableHint}</Text>
+  const activeIncome = incomeYears[activeYear];
+
+  function renderBody() {
+    return (
+      <>
+        <Card style={styles.infoCard}>
+          <View style={styles.infoHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoTitle}>Burs ve İndirimler</Text>
+              <Text style={styles.infoText}>
+                Giderler içinde ayrı section olarak gösterilir. Satırlar kompakt tablo düzeninde, yıl sekmesiyle düzenlenir.
+              </Text>
+            </View>
+            <View style={[styles.editBadge, canEdit ? styles.editBadgeOn : styles.editBadgeOff]}>
+              <Ionicons name={canEdit ? "create-outline" : "lock-closed-outline"} size={14} color={canEdit ? colors.primaryText : colors.warn} />
+              <Text style={[styles.editBadgeText, { color: canEdit ? colors.primaryText : colors.warn }]}>
+                {canEdit ? "Açık" : "Kilitli"}
+              </Text>
+            </View>
+          </View>
+          {!canEdit ? <Text style={styles.warningText}>{disabledReason}</Text> : null}
+        </Card>
+
+        <View style={styles.tableCard}>
+          <View style={styles.tableHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tableTitle}>Burs ve İndirimler</Text>
+              <Text style={styles.tableSub}>Öğrenci × indirim = toplam indirim etkisi</Text>
+            </View>
+            <View style={styles.statusBadge}>
+              <Text style={styles.statusBadgeText}>{totals.amounts.y1 > 0 ? "Tamam" : "Eksik"}</Text>
+            </View>
+          </View>
+
+          <View style={styles.yearTabs}>
+            {DISCOUNT_YEAR_KEYS.map((yearKey) => {
+              const active = activeYear === yearKey;
+              return (
+                <Pressable
+                  key={yearKey}
+                  onPress={() => setActiveYear(yearKey)}
+                  style={[styles.yearTab, active ? styles.yearTabActive : null]}
+                  testID={`discounts-mobile-year-${yearKey}`}
+                >
+                  <Text style={[styles.yearTabText, active ? styles.yearTabTextActive : null]}>{yearKey.toUpperCase()}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.compactHeader}>
+            <Text style={styles.compactHeaderText}>Satır</Text>
+            <Text style={styles.compactHeaderText}>Öğr.</Text>
+            <Text style={styles.compactHeaderText}>İndirim</Text>
+            <Text style={[styles.compactHeaderText, styles.compactHeaderRight]}>Toplam</Text>
+          </View>
+
+          <View style={styles.compactRows}>
+            {draft.map((row, index) => {
+              const mode = modeOf(row);
+              const count = countForRow(row, activeYear, activeIncome.tuitionStudents);
+              const effectiveValue = effectiveValueForRow(row, activeYear, activeIncome);
+              const displayValue = mode === "percent" ? effectiveValue * 100 : effectiveValue;
+              const amount = discountAmount(row, activeYear, activeIncome, count);
+              const fallbackHint = usesFixedInflationFallback(row, activeYear);
+
+              return (
+                <View key={`${index}-${row.name}`} style={styles.compactRow}>
+                  <View style={styles.nameCell}>
+                    <Text style={styles.rowTitle} numberOfLines={2}>{row.name}</Text>
+                    <View style={styles.modeTabs}>
+                      <Pressable
+                        onPress={() => canEdit && updateMode(index, "percent")}
+                        style={[styles.modeChip, mode === "percent" ? styles.modeChipActive : null]}
+                        testID={`discounts-mode-percent-${index}`}
+                      >
+                        <Text style={[styles.modeChipText, mode === "percent" ? styles.modeChipTextActive : null]}>%</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => canEdit && updateMode(index, "fixed")}
+                        style={[styles.modeChip, mode === "fixed" ? styles.modeChipActive : null]}
+                        testID={`discounts-mode-fixed-${index}`}
+                      >
+                        <Text style={[styles.modeChipText, mode === "fixed" ? styles.modeChipTextActive : null]}>Tutar</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <CompactNumberInput
+                    value={count}
+                    editable={canEdit}
+                    onChange={(next) => updateYear(index, activeYear, next, displayValue)}
+                    testID={`discounts-${index}-${activeYear}-count`}
+                  />
+
+                  <CompactNumberInput
+                    value={displayValue}
+                    unit={mode === "percent" ? "%" : currencyCode}
+                    editable={canEdit}
+                    warning={fallbackHint}
+                    onChange={(next) => updateYear(index, activeYear, count, next)}
+                    testID={`discounts-${index}-${activeYear}-value`}
+                  />
+
+                  <View style={styles.totalCell}>
+                    <Text style={styles.totalText}>{formatMoney(amount, currencyCode)}</Text>
+                    <Text style={styles.totalSub}>
+                      {formatInt(count)} × {mode === "percent" ? formatPct(displayValue) : formatMoney(displayValue, currencyCode)}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={styles.grandTotal}>
+            <Text style={styles.grandTotalLabel}>{activeYear.toUpperCase()} toplam indirim</Text>
+            <Text style={styles.grandTotalValue}>{formatMoney(totals.amounts[activeYear], currencyCode)}</Text>
+          </View>
         </View>
-        <View style={[styles.editBadge, canEdit ? styles.editBadgeOn : styles.editBadgeOff]}>
-          <Ionicons name={canEdit ? "create-outline" : "lock-closed-outline"} size={14} color={canEdit ? colors.primaryText : colors.warn} />
-          <Text style={[styles.editBadgeText, { color: canEdit ? colors.primaryText : colors.warn }]}>
-            {canEdit ? "Acik" : "Kilitli"}
-          </Text>
-        </View>
-      </View>
 
-      <FormSection title="Ozet" subtitle="Indirimler yalniz ogrenci ucret gelirlerine uygulanir.">
-        {DISCOUNT_YEAR_KEYS.map((yearKey) => (
-          <ReadonlyValueRow
-            key={yearKey}
-            label={`${yearLabel(scenario, yearKey)} toplam`}
-            value={`${formatMoney(totals.amounts[yearKey], currencyCode)} / ${formatInt(totals.counts[yearKey])} ogr.`}
+        <Card style={styles.summaryCard}>
+          <SummaryRow label={`${yearLabel(scenario, activeYear)} toplam öğrenci`} value={formatInt(activeIncome.tuitionStudents)} />
+          <SummaryRow label={`${activeYear.toUpperCase()} indirimli öğrenci`} value={formatInt(totals.counts[activeYear])} />
+          <SummaryRow
+            label={`${activeYear.toUpperCase()} indirimli öğrenci oranı`}
+            value={formatPct(activeIncome.tuitionStudents > 0 ? (totals.counts[activeYear] / activeIncome.tuitionStudents) * 100 : 0)}
           />
-        ))}
-        <ReadonlyValueRow
-          label="Y1 indirimli ogrenci orani"
-          value={formatPct(incomeYears.y1.tuitionStudents > 0 ? (totals.counts.y1 / incomeYears.y1.tuitionStudents) * 100 : 0)}
-        />
-      </FormSection>
+        </Card>
+      </>
+    );
+  }
 
-      <FormSection title="Satirlar" subtitle="Satir ekleme/silme PR 06B kapsaminda kapali; mevcut/default satirlar korunur.">
-        {draft.map((row, index) => (
-          <DiscountRowCard
-            key={`${index}-${row.name}`}
-            row={row}
-            index={index}
-            scenario={scenario}
-            currencyCode={currencyCode}
-            canEdit={canEdit}
-            incomeYears={incomeYears}
-            onModeChange={updateMode}
-            onYearChange={updateYear}
-          />
-        ))}
-      </FormSection>
-
-      {message ? <Text style={message.includes("kaydedildi") ? styles.successText : styles.warningText}>{message}</Text> : null}
+  function renderActions() {
+    return (
       <View style={styles.actions}>
         <Button
-          label="Vazgec"
+          label="Vazgeç"
           icon="close-outline"
           variant="secondary"
           disabled={!isDirty || saving}
@@ -337,7 +449,7 @@ export function DiscountsEditor({
           testID="discounts-cancel-button"
         />
         <Button
-          label={isDirty ? "Kaydet" : "Degisiklik yok"}
+          label={isDirty ? "Kaydet" : "Değişiklik yok"}
           icon="save-outline"
           disabled={!canEdit || !isDirty || saving}
           loading={saving}
@@ -346,92 +458,146 @@ export function DiscountsEditor({
           testID="discounts-save-button"
         />
       </View>
-    </Card>
-  );
-}
+    );
+  }
 
-function DiscountRowCard({
-  row,
-  index,
-  scenario,
-  currencyCode,
-  canEdit,
-  incomeYears,
-  onModeChange,
-  onYearChange,
-}: {
-  row: DiscountRow;
-  index: number;
-  scenario: Scenario | null;
-  currencyCode: string;
-  canEdit: boolean;
-  incomeYears: Record<DiscountYearKey, IncomeYear>;
-  onModeChange: (index: number, mode: "percent" | "fixed") => void;
-  onYearChange: (index: number, yearKey: DiscountYearKey, count: number | null, value: number | null) => void;
-}) {
-  const mode = modeOf(row);
-  return (
-    <View style={styles.rowCard}>
-      <View style={styles.rowHead}>
-        <Text style={styles.rowTitle}>{row.name}</Text>
-        <View style={styles.modeTabs}>
-          <Chip label="%" active={mode === "percent"} onPress={() => canEdit && onModeChange(index, "percent")} testID={`discounts-mode-percent-${index}`} />
-          <Chip label="Tutar" active={mode === "fixed"} onPress={() => canEdit && onModeChange(index, "fixed")} testID={`discounts-mode-fixed-${index}`} />
+  if (stickyActions) {
+    return (
+      <View testID="discounts-editor" style={[styles.stickyShell, stickyScrollHeight ? { height: stickyScrollHeight } : null]}>
+        <ScrollView
+          style={styles.stickyScroll}
+          contentContainerStyle={[styles.stickyScrollContent, { paddingBottom: stickyActionPadding }]}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {renderBody()}
+        </ScrollView>
+        <View style={[styles.stickyActions, { bottom: stickyActionBottom }]}>
+          {message ? <Text style={message.includes("kaydedildi") ? styles.successText : styles.warningText}>{message}</Text> : null}
+          {renderActions()}
         </View>
       </View>
+    );
+  }
 
-      {DISCOUNT_YEAR_KEYS.map((yearKey) => {
-        const income = incomeYears[yearKey];
-        const count = countForRow(row, yearKey, income.tuitionStudents);
-        const effectiveValue = effectiveValueForRow(row, yearKey, income);
-        const displayValue = mode === "percent" ? effectiveValue * 100 : effectiveValue;
-        const amount = discountAmount(row, yearKey, income, count);
-        const fallbackHint = usesFixedInflationFallback(row, yearKey)
-          ? "Yil degeri yok; Y1 tutari enflasyonla gosteriliyor."
-          : undefined;
-        return (
-          <View key={yearKey} style={styles.yearBlock}>
-            <Text style={styles.yearTitle}>{yearLabel(scenario, yearKey)}</Text>
-            <FormRow label="Ogrenci">
-              <FinancialNumberInput
-                value={count}
-                disabled={!canEdit}
-                onChange={(next) => onYearChange(index, yearKey, next, displayValue)}
-                testID={`discounts-${index}-${yearKey}-count`}
-              />
-            </FormRow>
-            <FormRow label={mode === "percent" ? "Ortalama indirim" : "Kisi basi indirim"} hint={fallbackHint}>
-              <FinancialNumberInput
-                value={displayValue}
-                unit={mode === "percent" ? "%" : currencyCode}
-                disabled={!canEdit}
-                onChange={(next) => onYearChange(index, yearKey, count, next)}
-                testID={`discounts-${index}-${yearKey}-value`}
-              />
-            </FormRow>
-            <ReadonlyValueRow label="Toplam" value={formatMoney(amount, currencyCode)} />
-          </View>
-        );
-      })}
+  return (
+    <View testID="discounts-editor" style={styles.root}>
+      {renderBody()}
+      {message ? <Text style={message.includes("kaydedildi") ? styles.successText : styles.warningText}>{message}</Text> : null}
+      {renderActions()}
     </View>
   );
 }
 
+function CompactNumberInput({
+  value,
+  unit,
+  editable,
+  warning,
+  onChange,
+  testID,
+}: {
+  value: number;
+  unit?: string;
+  editable: boolean;
+  warning?: boolean;
+  onChange: (value: number | null) => void;
+  testID?: string;
+}) {
+  const [text, setText] = React.useState(value > 0 && editable ? String(Number(value.toFixed(2))) : "");
+
+  React.useEffect(() => {
+    if (editable) setText(value > 0 ? String(Number(value.toFixed(2))) : "");
+  }, [editable, value]);
+
+  if (!editable) {
+    return (
+      <View style={[styles.inputReadonly, warning ? styles.inputWarning : null]}>
+        <Text style={styles.inputReadonlyText} numberOfLines={1}>
+          {unit ? `${Number(value.toFixed(2))} ${unit}` : formatInt(value)}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.inputWrap, warning ? styles.inputWarning : null]}>
+      <TextInput
+        testID={testID}
+        value={text}
+        onChangeText={(nextText) => {
+          setText(nextText);
+          onChange(parseDiscountNumber(nextText));
+        }}
+        keyboardType="decimal-pad"
+        placeholder="Gir"
+        placeholderTextColor={colors.textMuted}
+        style={styles.input}
+      />
+      {unit ? <Text style={styles.unit}>{unit}</Text> : null}
+    </View>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{value}</Text>
+    </View>
+  );
+}
+
+function parseDiscountNumber(text: string) {
+  const normalized = text.replace(",", ".").replace(/[^\d.-]/g, "");
+  if (!normalized || normalized === "-" || normalized === "." || normalized === "-.") return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
 const styles = StyleSheet.create({
-  editorHead: {
+  root: {
+    gap: spacing.md,
+  },
+  stickyShell: {
+    position: "relative",
+    gap: spacing.sm,
+  },
+  stickyScroll: {
+    flex: 1,
+  },
+  stickyScrollContent: {
+    gap: spacing.md,
+  },
+  stickyActions: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    padding: spacing.sm,
+    borderRadius: radius.xl,
+    backgroundColor: colors.bgElev,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  infoCard: {
+    gap: spacing.sm,
+  },
+  infoHead: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.sm,
-    marginBottom: spacing.md,
   },
-  title: {
+  infoTitle: {
     color: colors.text,
-    ...font.h3,
+    ...font.bodyMd,
+    fontWeight: "900",
   },
-  subtitle: {
+  infoText: {
+    marginTop: 4,
     color: colors.textDim,
     ...font.small,
-    marginTop: 4,
+    lineHeight: 18,
   },
   editBadge: {
     flexDirection: "row",
@@ -453,38 +619,269 @@ const styles = StyleSheet.create({
     ...font.tiny,
     fontWeight: "900",
   },
-  rowCard: {
-    gap: spacing.sm,
-    backgroundColor: colors.bgElev2,
-    borderRadius: radius.md,
+  tableCard: {
+    overflow: "hidden",
+    borderRadius: radius.xl,
+    backgroundColor: colors.bgElev,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.sm,
   },
-  rowHead: {
+  tableHead: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: spacing.sm,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  rowTitle: {
+  tableTitle: {
     color: colors.text,
     ...font.bodyMd,
+    fontWeight: "900",
   },
-  modeTabs: {
+  tableSub: {
+    marginTop: 3,
+    color: colors.textDim,
+    ...font.small,
+    lineHeight: 17,
+  },
+  statusBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderWidth: 1,
+    backgroundColor: "#F973161A",
+    borderColor: "#F9731655",
+  },
+  statusBadgeText: {
+    color: colors.warn,
+    ...font.tiny,
+    fontWeight: "900",
+  },
+  yearTabs: {
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  yearBlock: {
-    gap: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+  yearTab: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bgElev2,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  yearTitle: {
+  yearTabActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  yearTabText: {
     color: colors.textDim,
     ...font.small,
     fontWeight: "900",
+  },
+  yearTabTextActive: {
+    color: colors.primaryText,
+  },
+  compactHeader: {
+    flexDirection: "row",
+    gap: 6,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElev2,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  compactHeaderText: {
+    flex: 1,
+    color: colors.textDim,
+    ...font.tiny,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  compactHeaderRight: {
+    textAlign: "right",
+  },
+  compactRows: {
+    gap: 7,
+    padding: 10,
+  },
+  compactRow: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+    borderRadius: radius.lg,
+    backgroundColor: colors.bgElev2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 8,
+  },
+  nameCell: {
+    flex: 1.25,
+    minWidth: 0,
+  },
+  rowTitle: {
+    color: colors.text,
+    ...font.small,
+    fontWeight: "900",
+    lineHeight: 16,
+  },
+  modeTabs: {
+    flexDirection: "row",
+    gap: 5,
+    marginTop: 5,
+  },
+  modeChip: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bgElev,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modeChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  modeChipText: {
+    color: colors.textDim,
+    ...font.tiny,
+    fontWeight: "900",
+  },
+  modeChipTextActive: {
+    color: colors.primaryText,
+  },
+  inputWrap: {
+    flex: 0.82,
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElev,
+    overflow: "hidden",
+  },
+  inputWarning: {
+    borderColor: "#F9731655",
+    backgroundColor: "#F9731610",
+  },
+  input: {
+    flex: 1,
+    color: colors.text,
+    textAlign: "right",
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    fontSize: 12,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  unit: {
+    alignSelf: "stretch",
+    paddingHorizontal: 7,
+    textAlignVertical: "center",
+    color: colors.textDim,
+    ...font.tiny,
+    fontWeight: "900",
+    backgroundColor: colors.bgElev2,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+  inputReadonly: {
+    flex: 0.82,
+    minHeight: 34,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElev,
+    paddingHorizontal: 8,
+  },
+  inputReadonlyText: {
+    color: colors.text,
+    ...font.tiny,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  totalCell: {
+    flex: 1,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  totalText: {
+    color: colors.text,
+    ...font.tiny,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  totalSub: {
+    marginTop: 2,
+    color: colors.textMuted,
+    fontSize: 9,
+    fontWeight: "800",
+    textAlign: "right",
+  },
+  grandTotal: {
+    marginHorizontal: 10,
+    marginBottom: 12,
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: "#E8F2FF",
+    borderWidth: 1,
+    borderColor: "#3B82F655",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  grandTotalLabel: {
+    flex: 1,
+    color: colors.text,
+    ...font.small,
+    fontWeight: "900",
+    lineHeight: 17,
+  },
+  grandTotalValue: {
+    color: colors.primary,
+    ...font.bodyMd,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  summaryCard: {
+    gap: spacing.sm,
+  },
+  summaryRow: {
+    minHeight: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElev2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  summaryLabel: {
+    flex: 1,
+    color: colors.text,
+    ...font.small,
+    fontWeight: "900",
+  },
+  summaryValue: {
+    color: colors.text,
+    ...font.small,
+    fontWeight: "900",
+    textAlign: "right",
   },
   warningText: {
     color: colors.warn,
@@ -493,12 +890,10 @@ const styles = StyleSheet.create({
   successText: {
     color: colors.success,
     ...font.small,
-    marginTop: spacing.sm,
   },
   actions: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.md,
   },
   actionButton: {
     flex: 1,
